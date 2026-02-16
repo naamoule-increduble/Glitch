@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
 const translations = {
   he: {
     appName: "GLITCH",
-    chooseGameLabel: "איזה משחק אתם משחקים?",
+    chooseGameLabel: "פרוטוקול משחק:",
     chooseVibeLabel: "רמת עצימות:",
     startGameBtn: "אתחל מערכת",
     rulePlaceholder: "ממתין לפקודה...",
@@ -12,22 +12,21 @@ const translations = {
     autoModeActive: "AUTO: ON",
     autoModeInactive: "AUTO: OFF",
     recharging: "טוען אנרגיה...",
-    scanPlaceholder: "או צלם את הקופסה/חוקים 📸",
-    gameInputPlaceholder: "הקלידו שם משחק...",
-    quickGamesLabel: "או בחרו מהמשחקים הפופולריים:",
-    unknownGameWarning: "🤔 לא מכיר את המשחק. תצלם את החוקים או הקופסה למשחק טוב יותר!",
+    scanPlaceholder: "סרוק קופסה / לוח 📸",
+    gameInputPlaceholder: "או הקלד שם משחק...",
     games: {
       monopoly: "מונופול",
-      taki: "טאקי",
+      taki: "טאקי", 
       catan: "קטאן",
       poker: "פוקר",
       rummikub: "רמיקוב",
-      uno: "אונו"
+      uno: "אונו",
+      camera: "--- סרוק משחק 📸 ---"
     },
     vibes: {
-      chaotic: "כאוס 🔥",
-      drinking: "שתייה 🍻",
-      funny: "שטותי 😂"
+      chaotic: "כאוס",
+      drinking: "שתייה (18+)",
+      funny: "שטותי"
     }
   }
 };
@@ -37,18 +36,17 @@ function App() {
   const t = translations.he;
 
   const [screen, setScreen] = useState('home');
-  const [gameKey, setGameKey] = useState('');
+  const [gameKey, setGameKey] = useState('monopoly');
   const [customGameName, setCustomGameName] = useState('');
   const [vibeKey, setVibeKey] = useState('chaotic');
   const [imageData, setImageData] = useState(null);
   const [isAutoMode, setIsAutoMode] = useState(false);
-  const [rulesQueue, setRulesQueue] = useState([]);
-  const [isFetchingBatch, setIsFetchingBatch] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(false);
+  const [rulesQueue, setRulesQueue] = useState([]); 
+  const [isFetchingBatch, setIsFetchingBatch] = useState(false); 
+  const [initialLoading, setInitialLoading] = useState(false); 
   const [isCoolingDown, setIsCoolingDown] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [currentRule, setCurrentRule] = useState("");
-  const [showUnknownWarning, setShowUnknownWarning] = useState(false);
 
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -60,17 +58,17 @@ function App() {
     queueRef.current = rulesQueue;
   }, [rulesQueue]);
 
-  const sanitizeRule = useCallback((item) => {
+  const sanitizeRule = (item) => {
     if (typeof item === 'string') {
       return item.trim();
     }
     if (typeof item === 'object' && item !== null) {
-      const text = item.rule || item.text || item.description ||
+      const text = item.rule || item.text || item.description || 
                    item.rule_name || item.content || Object.values(item)[0];
       return typeof text === 'string' ? text.trim() : "חוק משובש";
     }
     return "שגיאת נתונים";
-  }, []);
+  };
 
   const hardReset = useCallback(() => {
     setIsFlipped(false);
@@ -152,68 +150,41 @@ function App() {
 
       console.log("🤖 Using Model:", bestModel);
 
-      const gameName = (customGameName && customGameName.trim() !== '')
-        ? customGameName
-        : (gameKey ? t.games[gameKey] : 'משחק לא ידוע');
-
-      const hasImage = !!imageData;
+      const gameName = (customGameName && customGameName.trim() !== '') 
+        ? customGameName 
+        : t.games[gameKey];
+      
+      const hasImage = (gameKey === 'camera' && imageData);
 
       const vibePrompts = {
-        chaotic: `חוקים מטורפים שמהפכים את כל מה שידוע. דוגמה: "המנצח הנוכחי הופך להיות במקום האחרון - והאחרון הופך לראשון"`,
-        drinking: `חוקים של שתייה עם תנאים ברורים. דוגמה: "כל שחקן שזרק מספר זוגי שותה לגימה ומחלק לגימה לשכן מימין"`,
-        funny: `חוקים משפחתיים עם משימות מצחיקות. דוגמה: "השחקן שבתור חייב לדבר בחרוזים - לא הצליח? חזור שלוש משבצות אחורה"`
+        chaotic: `חוקים מטורפים שיהפכו את המשחק לכאוס מוחלט. שנה כללי ניצחון, הוסף תנאים אבסורדיים, צור מצבים מגוחכים.`,
+        drinking: `חוקים של שתייה למבוגרים (18+). קבע מתי לשתות, כמה, ובאילו תנאים. היה יצירתי אבל אחראי.`,
+        funny: `חוקים מצחיקים ומשפחתיים. גרסת "כאוס לייט" - שטויות מצחיקות בלי אלכוהול או תוכן למבוגרים.`
       };
 
       let prompt = `
 אתה מנוע GLITCH - מערכת שיוצרת חוקים משוגעים למשחקי קופסה.
 
-${hasImage ? `📸 נתח את התמונה:
-1. זהה את שם המשחק
-2. קרא את כל החוקים והמכניקות שמופיעים בתמונה
-3. זהה את האלמנטים הספציפיים (קלפים, קוביות, משבצות, קטגוריות, משאבים וכו')
-4. צור 10 חוקי GLITCH שמבוססים ישירות על המכניקות שזיהית` : `🎲 המשחק: ${gameName}
-
-🔍 בדיקה ראשונית:
-- האם אתה מכיר את המשחק "${gameName}" ואת המכניקות שלו?
-- אם כן - תמשיך ליצור חוקים
-- אם לא - החזר בדיוק: "UNKNOWN_GAME"`}
+${hasImage ? '📸 זוהה תמונה של משחק.' : `🎲 המשחק: ${gameName}`}
 
 🎯 קטגוריה: ${t.vibes[vibeKey]}
-📋 סגנון לדוגמה: ${vibePrompts[vibeKey]}
+📋 סגנון: ${vibePrompts[vibeKey]}
 
-⚡ עקרונות כתיבה חובה:
-1. כל חוק חייב להיות ספציפי למשחק הזה - השתמש באלמנטים אמיתיים מהמשחק
-2. מבנה חוק: תנאי ברור → פעולה ברורה → טוויסט משעשע
-3. אורך: 8-15 מילים לחוק (לא קצר מדי!)
-4. ללא אימוג'ים - רק טקסט עברית
-5. כתוב בסגנון ספר חוקים רשמי עם קריצה הומוריסטית
-6. החזר בדיוק 10 חוקים
-7. פורמט: רשימת JSON של מחרוזות בלבד
+⚡ הוראות קריטיות:
+1. צור בדיוק 10 חוקים
+2. כל חוק מקסימום 10 מילים
+3. כתוב בעברית בלבד
+4. פקודות ישירות (לא הסברים!)
+5. החזר רשימת JSON של מחרוזות בלבד
 
-דוגמאות טובות:
-✅ "שחקן שזרק זוגות מקבל תור נוסף - ואז מחליף מקום עם השחקן משמאלו"
-✅ "נחתת על נכס של יריב? שלם לו פעמיים את השכירות ותן לו מחמאה"
-✅ "קלף סיכוי או קופה חייב להיקרא בקול ובמבטא רוסי"
-✅ "השחקן שבתור חייב לשחק בעמידה על רגל אחת - נפילה שווה חזרה למשבצת התחלה"
-✅ "כל קניית רחוב חייבת להתבצע בשירה - אחרת העסקה מתבטלת"
+דוגמה לפורמט תקין:
+["השחקן הבא מדלג 2 תורות", "כל 7 - החלף כיוון"]
 
-דוגמאות רעות:
-❌ "תור כפול!" - לא ברור מה התנאי
-❌ "החלף!" - לא ברור מה מחליפים
-❌ "שחקן מדלג" - לא ברור למה ומתי
+❌ אל תחזיר אובייקטים!
+❌ אל תוסיף הסברים!
+❌ אל תשתמש ב-markdown!
 
-התאמה למשחקים:
-- מונופול: דבר על משבצות, רחובות, כסף, נכסים, בית מלון, בנק
-- קלפים (טאקי/אונו): דבר על קלפים, צבעים, +2/+4, החלפת כיוון, ידיים
-- קטאן: דבר על משאבים, התנחלויות, כבישים, קלפי פיתוח, שודד
-- קוביות: דבר על זריקות, מספרים ספציפיים, זוגות
-- רמיקוב: דבר על אריחים, סדרות, קבוצות, ג'וקר
-
-❌ אל תיצור חוקים גנריים שיכולים לעבוד בכל משחק!
-❌ אל תוסיף markdown או הסברים!
-✅ רק JSON: ["חוק 1", "חוק 2", ...]
-
-${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צור חוקים שמתאימים למכניקות הספציפיות של המשחק הזה.' : `🎮 זהה את "${gameName}", הבן את המכניקות הייחודיות שלו, וצור חוקים שמשנים את החוקים המקוריים בצורה יצירתית.`}
+${hasImage ? '📸 נתח את המשחק בתמונה וצור חוקים מותאמים אליו.' : ''}
 `;
 
       let requestBody = {
@@ -247,24 +218,14 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       }
 
       let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-
+      
       rawText = rawText
         .replace(/```json/g, "")
         .replace(/```/g, "")
         .trim();
 
-      // Check if game is unknown
-      if (rawText.includes("UNKNOWN_GAME")) {
-        console.log("⚠️ Unknown game detected");
-        setShowUnknownWarning(true);
-        setIsFetchingBatch(false);
-        if (isInitial) setInitialLoading(false);
-        return;
-      }
-
-      setShowUnknownWarning(false);
       let newRulesArray = [];
-
+      
       try {
         const parsed = JSON.parse(rawText);
         if (Array.isArray(parsed)) {
@@ -284,7 +245,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       console.log(`✅ Fetched ${newRulesArray.length} rules`);
 
       setRulesQueue(prevQueue => [...prevQueue, ...newRulesArray]);
-
+      
       if (isInitial) {
         setScreen('game');
       }
@@ -371,9 +332,8 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       const reader = new FileReader();
       reader.onloadend = () => {
         setImageData(reader.result);
-        setGameKey('');
+        setGameKey('camera');
         setCustomGameName('');
-        setShowUnknownWarning(false);
       };
       reader.readAsDataURL(file);
     }
@@ -381,9 +341,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
 
   const removeImage = () => {
     setImageData(null);
-    setGameKey('');
-    setCustomGameName('');
-    setShowUnknownWarning(false);
+    setGameKey('monopoly');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -397,100 +355,29 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
   const renderHome = () => (
     <div className="card" style={{maxHeight: '90vh', overflowY: 'auto'}}>
       <h1 className="glitch-title">{t.appName}</h1>
-
+      
       <label style={{marginTop: 20}}>{t.chooseGameLabel}</label>
-
-      {/* Text Input for Game Name */}
-      <input
-        type="text"
-        placeholder={t.gameInputPlaceholder}
-        value={customGameName}
+      
+      <select 
+        value={gameKey} 
         onChange={e => {
-          setCustomGameName(e.target.value);
-          setShowUnknownWarning(false);
-        }}
-        className="neon-input"
-        style={{
-          width: '100%',
-          padding: '12px',
-          margin: '10px 0',
-          backgroundColor: '#222',
-          border: '1px solid #00d4ff',
-          color: '#fff',
-          borderRadius: '8px',
-          textAlign: 'right',
-          fontSize: '1rem',
-          outline: 'none',
-          boxShadow: customGameName ? '0 0 10px #00d4ff' : 'none',
-          transition: 'all 0.3s ease'
-        }}
+          const newKey = e.target.value;
+          setGameKey(newKey);
+          if (newKey !== 'camera') {
+            setCustomGameName('');
+          }
+          if (newKey === 'camera') {
+            fileInputRef.current?.click();
+          }
+        }} 
         dir="rtl"
-      />
+      >
+        {Object.keys(t.games).map(k => (
+          <option key={k} value={k}>{t.games[k]}</option>
+        ))}
+      </select>
 
-      {/* Unknown Game Warning */}
-      {showUnknownWarning && !imageData && (
-        <div style={{
-          backgroundColor: 'rgba(255, 165, 0, 0.1)',
-          border: '1px solid #ffa500',
-          borderRadius: '8px',
-          padding: '12px',
-          margin: '10px 0',
-          color: '#ffa500',
-          textAlign: 'center',
-          fontSize: '0.9rem'
-        }}>
-          {t.unknownGameWarning}
-        </div>
-      )}
-
-      {/* Quick Game Buttons */}
-      {!imageData && (
-        <>
-          <label style={{fontSize: '0.85rem', marginTop: 15}}>{t.quickGamesLabel}</label>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '10px',
-            marginTop: 10
-          }}>
-            {Object.keys(t.games).map(key => (
-              <button
-                key={key}
-                onClick={() => {
-                  setCustomGameName(t.games[key]);
-                  setGameKey(key);
-                  setShowUnknownWarning(false);
-                }}
-                style={{
-                  padding: '10px',
-                  background: customGameName === t.games[key] ? 'rgba(0, 212, 255, 0.2)' : 'transparent',
-                  border: '1px solid #00d4ff',
-                  borderRadius: '8px',
-                  color: '#00d4ff',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={e => {
-                  if (customGameName !== t.games[key]) {
-                    e.target.style.background = 'rgba(0, 212, 255, 0.1)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (customGameName !== t.games[key]) {
-                    e.target.style.background = 'transparent';
-                  }
-                }}
-              >
-                {t.games[key]}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Image Upload Section */}
-      {imageData ? (
+      {imageData && (
         <div style={{
           position: 'relative',
           marginTop: 15,
@@ -498,18 +385,18 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
           display: 'flex',
           justifyContent: 'center'
         }}>
-          <img
-            src={imageData}
+          <img 
+            src={imageData} 
             style={{
               width: '100%',
               maxHeight: '180px',
               objectFit: 'cover',
               borderRadius: 8,
               border: '2px solid #00d4ff'
-            }}
+            }} 
             alt="game preview"
           />
-          <button
+          <button 
             onClick={removeImage}
             style={{
               position: 'absolute',
@@ -528,55 +415,74 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
             }}
           >×</button>
         </div>
-      ) : (
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            width: '100%',
-            padding: '12px',
-            marginTop: 15,
-            background: 'transparent',
-            border: '1px dashed #00d4ff',
-            borderRadius: '8px',
-            color: '#00d4ff',
-            fontSize: '0.9rem',
-            cursor: 'pointer',
-            transition: 'all 0.3s ease'
-          }}
-          onMouseEnter={e => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
-          onMouseLeave={e => e.target.style.background = 'transparent'}
-        >
-          {t.scanPlaceholder}
-        </button>
       )}
 
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{display: 'none'}}
+      {!imageData && (
+        <>
+          <input
+            type="text"
+            placeholder={t.gameInputPlaceholder}
+            value={customGameName}
+            onChange={e => setCustomGameName(e.target.value)}
+            className="neon-input"
+            style={{
+              width: '100%',
+              padding: '12px',
+              margin: '10px 0 10px 0',
+              backgroundColor: '#222',
+              border: '1px solid #00d4ff',
+              color: '#fff',
+              borderRadius: '8px',
+              textAlign: 'right',
+              fontSize: '1rem',
+              outline: 'none',
+              boxShadow: customGameName ? '0 0 10px #00d4ff' : 'none',
+              transition: 'all 0.3s ease'
+            }}
+            dir="rtl"
+          />
+          
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              textAlign: 'center',
+              color: '#00d4ff',
+              marginBottom: 20,
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              textDecoration: 'underline'
+            }}
+          >
+            {t.scanPlaceholder}
+          </div>
+        </>
+      )}
+
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        style={{display: 'none'}} 
         accept="image/*"
         onChange={handleImage}
       />
-
-      {/* Vibe Selector */}
-      <label style={{marginTop: 20}}>{t.chooseVibeLabel}</label>
-      <select
-        value={vibeKey}
-        onChange={e => setVibeKey(e.target.value)}
+      
+      <label>{t.chooseVibeLabel}</label>
+      <select 
+        value={vibeKey} 
+        onChange={e => setVibeKey(e.target.value)} 
         dir="rtl"
       >
         {Object.keys(t.vibes).map(k => (
           <option key={k} value={k}>{t.vibes[k]}</option>
         ))}
       </select>
-
-      {/* Start Button */}
-      <button
-        className="neon-btn"
+      
+      <button 
+        className="neon-btn" 
         onClick={startGame}
-        disabled={initialLoading || (!customGameName.trim() && !imageData)}
+        disabled={initialLoading}
         style={{
-          opacity: (initialLoading || (!customGameName.trim() && !imageData)) ? 0.5 : 1,
+          opacity: initialLoading ? 0.5 : 1,
           marginTop: 20
         }}
       >
@@ -618,10 +524,10 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       <div className="flip-container">
         <div className={`flipper ${isFlipped ? 'flip-active' : ''}`}>
           <div className="front">
-            {t.cardBackText}
+            {currentRule || t.rulePlaceholder}
           </div>
           <div className="back">
-            {currentRule || t.rulePlaceholder}
+            {t.cardBackText}
           </div>
         </div>
       </div>
