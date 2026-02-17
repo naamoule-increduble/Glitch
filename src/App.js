@@ -2,39 +2,50 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
 const translations = {
-  he: {
+  en: {
     appName: "GLITCH",
-    chooseGameLabel: "איזה משחק אתם משחקים?",
-    chooseVibeLabel: "רמת עצימות:",
-    startGameBtn: "אתחל מערכת",
-    rulePlaceholder: "ממתין לפקודה...",
+    chooseGameLabel: "What game are you playing?",
+    chooseVibeLabel: "Vibe level:",
+    startGameBtn: "Boot System",
+    rulePlaceholder: "Waiting for command...",
     cardBackText: "GLITCH",
     autoModeActive: "AUTO: ON",
     autoModeInactive: "AUTO: OFF",
-    recharging: "טוען אנרגיה...",
-    scanPlaceholder: "או צלם את הקופסה/חוקים 📸",
-    gameInputPlaceholder: "הקלידו שם משחק...",
-    quickGamesLabel: "או בחרו מהמשחקים הפופולריים:",
-    unknownGameWarning: "🤔 לא מכיר את המשחק. תצלם את החוקים או הקופסה למשחק טוב יותר!",
+    recharging: "Recharging...",
+    scanPlaceholder: "Or snap a pic of the box/rules 📸",
+    gameInputPlaceholder: "Type a game name...",
+    quickGamesLabel: "Or pick a popular one:",
+    unknownGameWarning: "🤔 Don't know that game. Try snapping a pic of the rules or the box for a better experience!",
+    loadingText: "Analyzing...",
+    loadingMore: "Loading more...",
+    scannedGame: "Scanned game",
+    autoModeDesc: "System fires automatically every 45-90 seconds",
     games: {
-      monopoly: "מונופול",
-      taki: "טאקי",
-      catan: "קטאן",
-      poker: "פוקר",
-      rummikub: "רמיקוב",
-      uno: "אונו"
+      monopoly: "Monopoly",
+      taki: "Taki",
+      catan: "Catan",
+      poker: "Poker",
+      rummikub: "Rummikub",
+      uno: "UNO"
     },
     vibes: {
-      chaotic: "כאוס 🔥",
-      drinking: "שתייה 🍻",
-      funny: "שטותי 😂"
+      chaotic: "Chaos 🔥",
+      drinking: "Drinks 🍻",
+      funny: "Silly 😂"
+    },
+    errors: {
+      corruptRule: "Corrupted rule",
+      dataError: "Data error",
+      networkError: "Network hiccup",
+      checkConnection: "Check your internet",
+      tryAgain: "Give it another shot"
     }
   }
 };
 
 function App() {
-  const API_KEY = "AIzaSyAowzTTPSmsxJEr1Xcpb3KXkPer4KxD2eE".trim(); 
-  const t = translations.he;
+  const API_KEY = "AIzaSyAowzTTPSmsxJEr1Xcpb3KXkPer4KxD2eE".trim();
+  const t = translations.en;
 
   const [screen, setScreen] = useState('home');
   const [gameKey, setGameKey] = useState('');
@@ -52,8 +63,8 @@ function App() {
 
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
-  const queueRef = useRef([]); 
-  const flipTimeoutRef = useRef(null); 
+  const queueRef = useRef([]);
+  const flipTimeoutRef = useRef(null);
   const cooldownTimerRef = useRef(null);
 
   useEffect(() => {
@@ -67,18 +78,18 @@ function App() {
     if (typeof item === 'object' && item !== null) {
       const text = item.rule || item.text || item.description ||
                    item.rule_name || item.content || Object.values(item)[0];
-      return typeof text === 'string' ? text.trim() : "חוק משובש";
+      return typeof text === 'string' ? text.trim() : t.errors.corruptRule;
     }
-    return "שגיאת נתונים";
-  }, []);
+    return t.errors.dataError;
+  }, [t.errors.corruptRule, t.errors.dataError]);
 
   const hardReset = useCallback(() => {
     setIsFlipped(false);
-    setCurrentRule(""); 
-    setRulesQueue([]); 
+    setCurrentRule("");
+    setRulesQueue([]);
     setIsCoolingDown(false);
     setIsAutoMode(false);
-    
+
     if (flipTimeoutRef.current) {
       clearTimeout(flipTimeoutRef.current);
       flipTimeoutRef.current = null;
@@ -102,21 +113,21 @@ function App() {
     if (navigator.vibrate) {
       navigator.vibrate([100, 50, 100]);
     }
-    
+
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (AudioContext) {
         const ctx = new AudioContext();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        
-        osc.type = 'sawtooth'; 
+
+        osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(100, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.15);
-        
+
         gain.gain.setValueAtTime(0.1, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-        
+
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
@@ -129,7 +140,7 @@ function App() {
 
   const fetchRulesBatch = useCallback(async (isInitial = false) => {
     if (isFetchingBatch) return;
-    
+
     setIsFetchingBatch(true);
     if (isInitial) setInitialLoading(true);
 
@@ -138,7 +149,7 @@ function App() {
         `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`
       );
       const listData = await listRes.json();
-      
+
       let bestModel = listData.models?.find(m => m.name.includes("flash"))?.name;
       if (!bestModel) {
         bestModel = listData.models?.find(m => m.name.includes("gemini-1.5-pro"))?.name;
@@ -154,66 +165,69 @@ function App() {
 
       const gameName = (customGameName && customGameName.trim() !== '')
         ? customGameName
-        : (gameKey ? t.games[gameKey] : 'משחק לא ידוע');
+        : (gameKey ? t.games[gameKey] : 'unknown game');
 
       const hasImage = !!imageData;
 
       const vibePrompts = {
-        chaotic: `חוקים מטורפים שמהפכים את כל מה שידוע. דוגמה: "המנצח הנוכחי הופך להיות במקום האחרון - והאחרון הופך לראשון"`,
-        drinking: `חוקים של שתייה עם תנאים ברורים. דוגמה: "כל שחקן שזרק מספר זוגי שותה לגימה ומחלק לגימה לשכן מימין"`,
-        funny: `חוקים משפחתיים עם משימות מצחיקות. דוגמה: "השחקן שבתור חייב לדבר בחרוזים - לא הצליח? חזור שלוש משבצות אחורה"`
+        chaotic: `Wild, unhinged rules that flip the game upside down. Example: "Whoever's winning swaps places with whoever's losing - surprise, you're last now"`,
+        drinking: `Drinking rules with clear triggers and a party vibe. Example: "Rolled an even number? Take a sip and make the player across from you drink too"`,
+        funny: `Family-friendly silly rules with goofy challenges. Example: "Whoever's turn it is must speak in a British accent - break character and go back 3 spaces"`
       };
 
       let prompt = `
-אתה מנוע GLITCH - מערכת שיוצרת חוקים משוגעים למשחקי קופסה.
+You are the GLITCH engine - a system that creates hilariously twisted rules for board games.
 
-${hasImage ? `📸 נתח את התמונה:
-1. זהה את שם המשחק
-2. קרא את כל החוקים והמכניקות שמופיעים בתמונה
-3. זהה את האלמנטים הספציפיים (קלפים, קוביות, משבצות, קטגוריות, משאבים וכו')
-4. צור 10 חוקי GLITCH שמבוססים ישירות על המכניקות שזיהית` : `🎲 המשחק: ${gameName}
+${hasImage ? `📸 Analyze this image:
+1. Identify the game name
+2. Read all visible rules and mechanics
+3. Identify specific elements (cards, dice, tiles, categories, resources, etc.)
+4. Create 10 GLITCH rules based directly on the mechanics you identified` : `🎲 The game: ${gameName}
 
-🔍 בדיקה ראשונית:
-- האם אתה מכיר את המשחק "${gameName}" ואת המכניקות שלו?
-- אם כן - תמשיך ליצור חוקים
-- אם לא - החזר בדיוק: "UNKNOWN_GAME"`}
+🔍 First check:
+- Do you know the game "${gameName}" and its mechanics?
+- If yes - continue creating rules
+- If not - return exactly: "UNKNOWN_GAME"`}
 
-🎯 קטגוריה: ${t.vibes[vibeKey]}
-📋 סגנון לדוגמה: ${vibePrompts[vibeKey]}
+🎯 Vibe: ${t.vibes[vibeKey]}
+📋 Style example: ${vibePrompts[vibeKey]}
 
-⚡ עקרונות כתיבה חובה:
-1. כל חוק חייב להיות ספציפי למשחק הזה - השתמש באלמנטים אמיתיים מהמשחק
-2. מבנה חוק: תנאי ברור → פעולה ברורה → טוויסט משעשע
-3. אורך: 8-15 מילים לחוק (לא קצר מדי!)
-4. ללא אימוג'ים - רק טקסט עברית
-5. כתוב בסגנון ספר חוקים רשמי עם קריצה הומוריסטית
-6. החזר בדיוק 10 חוקים
-7. פורמט: רשימת JSON של מחרוזות בלבד
+⚡ MANDATORY writing rules:
+1. Every rule MUST be specific to this game - use real elements from the game
+2. Structure: clear condition → clear action → funny twist
+3. Length: 8-20 words per rule (not too short!)
+4. Write in a fun, casual tone - like a friend explaining house rules
+5. Sound like something someone would actually say at game night, not a rulebook
+6. No emojis in the rules themselves
+7. Return exactly 10 rules
+8. Format: JSON array of strings only
 
-דוגמאות טובות:
-✅ "שחקן שזרק זוגות מקבל תור נוסף - ואז מחליף מקום עם השחקן משמאלו"
-✅ "נחתת על נכס של יריב? שלם לו פעמיים את השכירות ותן לו מחמאה"
-✅ "קלף סיכוי או קופה חייב להיקרא בקול ובמבטא רוסי"
-✅ "השחקן שבתור חייב לשחק בעמידה על רגל אחת - נפילה שווה חזרה למשבצת התחלה"
-✅ "כל קניית רחוב חייבת להתבצע בשירה - אחרת העסקה מתבטלת"
+Good examples:
+✅ "Rolled doubles? Nice, you get another turn - but you have to swap seats with the player on your left"
+✅ "Landed on someone's property? Pay double rent AND give them a genuine compliment"
+✅ "Chance or Community Chest cards must be read aloud in your best movie villain voice"
+✅ "If you're in the lead, you have to play standing on one foot - fall over and it's back to Start"
+✅ "Buying a property? You gotta sing about it or the deal's off"
+✅ "The dice went missing, so next turn everyone just goes wherever they want"
+✅ "Got three of a kind? Pass them to the player on your right... sorry about that"
 
-דוגמאות רעות:
-❌ "תור כפול!" - לא ברור מה התנאי
-❌ "החלף!" - לא ברור מה מחליפים
-❌ "שחקן מדלג" - לא ברור למה ומתי
+Bad examples:
+❌ "Double turn!" - unclear what triggers it
+❌ "Swap!" - swap what with whom?
+❌ "Player skips" - why and when?
 
-התאמה למשחקים:
-- מונופול: דבר על משבצות, רחובות, כסף, נכסים, בית מלון, בנק
-- קלפים (טאקי/אונו): דבר על קלפים, צבעים, +2/+4, החלפת כיוון, ידיים
-- קטאן: דבר על משאבים, התנחלויות, כבישים, קלפי פיתוח, שודד
-- קוביות: דבר על זריקות, מספרים ספציפיים, זוגות
-- רמיקוב: דבר על אריחים, סדרות, קבוצות, ג'וקר
+Game-specific elements:
+- Monopoly: spaces, streets, money, properties, hotels, bank, jail
+- Card games (Taki/UNO): cards, colors, +2/+4, reverse, hands, draw pile
+- Catan: resources, settlements, roads, development cards, robber
+- Dice games: rolls, specific numbers, doubles, snake eyes
+- Rummikub: tiles, runs, groups, jokers
 
-❌ אל תיצור חוקים גנריים שיכולים לעבוד בכל משחק!
-❌ אל תוסיף markdown או הסברים!
-✅ רק JSON: ["חוק 1", "חוק 2", ...]
+❌ Do NOT create generic rules that could work for any game!
+❌ Do NOT add markdown or explanations!
+✅ Only JSON: ["rule 1", "rule 2", ...]
 
-${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צור חוקים שמתאימים למכניקות הספציפיות של המשחק הזה.' : `🎮 זהה את "${gameName}", הבן את המכניקות הייחודיות שלו, וצור חוקים שמשנים את החוקים המקוריים בצורה יצירתית.`}
+${hasImage ? '📸 Base your rules only on what you see in the image. Create rules that match the specific mechanics of this game.' : `🎮 Identify "${gameName}", understand its unique mechanics, and create rules that twist the original rules in creative ways.`}
 `;
 
       let requestBody = {
@@ -241,7 +255,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       );
 
       const data = await res.json();
-      
+
       if (data.error) {
         throw new Error(data.error.message);
       }
@@ -291,12 +305,12 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
 
     } catch (error) {
       console.error("❌ Fetch Error:", error);
-      
+
       if (isInitial) {
         setRulesQueue([
-          "⚠️ תקלה ברשת",
-          "בדוק חיבור אינטרנט",
-          "נסה שוב"
+          t.errors.networkError,
+          t.errors.checkConnection,
+          t.errors.tryAgain
         ]);
         setScreen('game');
       }
@@ -304,7 +318,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       setIsFetchingBatch(false);
       if (isInitial) setInitialLoading(false);
     }
-  }, [API_KEY, customGameName, gameKey, imageData, isFetchingBatch, t.games, t.vibes, vibeKey, sanitizeRule]);
+  }, [API_KEY, customGameName, gameKey, imageData, isFetchingBatch, t.games, t.vibes, t.errors, vibeKey, sanitizeRule]);
 
   const pullNextRule = useCallback(() => {
     if (isCoolingDown) return;
@@ -318,33 +332,33 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
 
     flipTimeoutRef.current = setTimeout(() => {
       let nextRule = "";
-      
+
       if (queueRef.current.length > 0) {
         const tempQueue = [...queueRef.current];
         const item = tempQueue.shift();
-        
+
         nextRule = sanitizeRule(item);
         setRulesQueue(tempQueue);
         setCurrentRule(nextRule);
-        
+
         if (tempQueue.length < 3 && !isFetchingBatch) {
           console.log("🔄 Refilling queue...");
           fetchRulesBatch(false);
         }
       } else {
-        setCurrentRule("טוען עוד נתונים...");
+        setCurrentRule(t.loadingMore);
         fetchRulesBatch(false);
       }
 
       triggerGlitchEffect();
       setIsFlipped(true);
     }, 600);
-  }, [isCoolingDown, isFetchingBatch, fetchRulesBatch, sanitizeRule]);
+  }, [isCoolingDown, isFetchingBatch, fetchRulesBatch, sanitizeRule, t.loadingMore]);
 
   useEffect(() => {
     const scheduleNext = () => {
       const delay = Math.floor(Math.random() * (90000 - 45000 + 1)) + 45000;
-      
+
       timerRef.current = setTimeout(() => {
         if (isAutoMode && screen === 'game' && !isCoolingDown) {
           pullNextRule();
@@ -352,11 +366,11 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
         scheduleNext();
       }, delay);
     };
-    
+
     if (screen === 'game' && isAutoMode) {
       scheduleNext();
     }
-    
+
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
@@ -418,13 +432,12 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
           border: '1px solid #00d4ff',
           color: '#fff',
           borderRadius: '8px',
-          textAlign: 'right',
+          textAlign: 'left',
           fontSize: '1rem',
           outline: 'none',
           boxShadow: customGameName ? '0 0 10px #00d4ff' : 'none',
           transition: 'all 0.3s ease'
         }}
-        dir="rtl"
       />
 
       {/* Unknown Game Warning */}
@@ -514,7 +527,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
             style={{
               position: 'absolute',
               top: 5,
-              left: 5,
+              right: 5,
               background: 'rgba(0,0,0,0.8)',
               color: 'white',
               border: 'none',
@@ -563,7 +576,6 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       <select
         value={vibeKey}
         onChange={e => setVibeKey(e.target.value)}
-        dir="rtl"
       >
         {Object.keys(t.vibes).map(k => (
           <option key={k} value={k}>{t.vibes[k]}</option>
@@ -580,7 +592,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
           marginTop: 20
         }}
       >
-        {initialLoading ? "מנתח נתונים..." : t.startGameBtn}
+        {initialLoading ? t.loadingText : t.startGameBtn}
       </button>
     </div>
   );
@@ -593,7 +605,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
         alignItems: 'center',
         marginBottom: 20
       }}>
-        <button 
+        <button
           onClick={exitGame}
           style={{
             background: 'none',
@@ -606,15 +618,15 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
         >
           🔙
         </button>
-        
+
         <div style={{color: '#aaa', fontSize: '0.9rem'}}>
-          {gameKey === 'camera' 
-            ? 'משחק סרוק' 
-            : (customGameName || t.games[gameKey])
+          {imageData && !customGameName
+            ? t.scannedGame
+            : (customGameName || t.games[gameKey] || '')
           }
         </div>
       </div>
-      
+
       <div className="flip-container">
         <div className={`flipper ${isFlipped ? 'flip-active' : ''}`}>
           <div className="front">
@@ -625,17 +637,17 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
           </div>
         </div>
       </div>
-      
+
       {!isAutoMode && (
-        <button 
-          className="big-pulse-button" 
-          onClick={pullNextRule} 
+        <button
+          className="big-pulse-button"
+          onClick={pullNextRule}
           disabled={isCoolingDown}
           style={{
             borderColor: isCoolingDown ? '#ff0055' : '#00d4ff',
             color: isCoolingDown ? '#ff0055' : '#fff',
-            boxShadow: isCoolingDown 
-              ? '0 0 15px #ff0055' 
+            boxShadow: isCoolingDown
+              ? '0 0 15px #ff0055'
               : '0 0 20px #00d4ff',
             opacity: isCoolingDown ? 0.7 : 1,
             cursor: isCoolingDown ? 'not-allowed' : 'pointer'
@@ -646,7 +658,7 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
       )}
 
       <div style={{height: 30}}></div>
-      
+
       <div className="auto-switch">
         <span style={{
           color: isAutoMode ? '#00d4ff' : '#555',
@@ -654,17 +666,17 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
         }}>
           {isAutoMode ? t.autoModeActive : t.autoModeInactive}
         </span>
-        
+
         <label className="switch">
-          <input 
-            type="checkbox" 
-            checked={isAutoMode} 
+          <input
+            type="checkbox"
+            checked={isAutoMode}
             onChange={e => setIsAutoMode(e.target.checked)}
           />
           <span className="slider"></span>
         </label>
       </div>
-      
+
       {isAutoMode && (
         <div style={{
           color: '#555',
@@ -672,10 +684,10 @@ ${hasImage ? '📸 התבסס רק על מה שאתה רואה בתמונה. צ�
           marginTop: 10,
           textAlign: 'center'
         }}>
-          המערכת תופעל אוטומטית כל 45-90 שניות
+          {t.autoModeDesc}
         </div>
       )}
-      
+
       <div style={{
         position: 'absolute',
         bottom: 5,
