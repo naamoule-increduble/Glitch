@@ -44,7 +44,7 @@ const translations = {
 };
 
 function App() {
-  const API_KEY = "AIzaSyAowzTTPSmsxJEr1Xcpb3KXkPer4KxD2eE".trim();
+  const API_KEY = process.env.REACT_APP_GEMINI_KEY;
   const t = translations.en;
 
   const [screen, setScreen] = useState('home');
@@ -170,64 +170,52 @@ function App() {
       const hasImage = !!imageData;
 
       const vibePrompts = {
-        chaotic: `Wild, unhinged rules that flip the game upside down. Example: "Whoever's winning swaps places with whoever's losing - surprise, you're last now"`,
-        drinking: `Drinking rules with clear triggers and a party vibe. Example: "Rolled an even number? Take a sip and make the player across from you drink too"`,
-        funny: `Family-friendly silly rules with goofy challenges. Example: "Whoever's turn it is must speak in a British accent - break character and go back 3 spaces"`
+        chaotic: `Total chaos. Flip everything. Example: "Land on Go? Go to Jail instead"`,
+        drinking: `Party drinking rules. Example: "Roll doubles? Everyone drinks"`,
+        funny: `Silly family fun. Example: "Buy a property? Say it in a silly voice"`
       };
 
       let prompt = `
-You are the GLITCH engine - a system that creates hilariously twisted rules for board games.
+You are GLITCH - you create short, punchy, funny twisted rules for board games.
 
-${hasImage ? `📸 Analyze this image:
-1. Identify the game name
-2. Read all visible rules and mechanics
-3. Identify specific elements (cards, dice, tiles, categories, resources, etc.)
-4. Create 10 GLITCH rules based directly on the mechanics you identified` : `🎲 The game: ${gameName}
+${hasImage ? `📸 Look at this image. Identify the game and its mechanics. Then create 10 GLITCH rules using specific elements you see.` : `🎲 The game: ${gameName}
 
-🔍 First check:
-- Do you know the game "${gameName}" and its mechanics?
-- If yes - continue creating rules
-- If not - return exactly: "UNKNOWN_GAME"`}
+Do you know "${gameName}"? If yes - create rules. If no - return exactly: "UNKNOWN_GAME"`}
 
 🎯 Vibe: ${t.vibes[vibeKey]}
-📋 Style example: ${vibePrompts[vibeKey]}
+📋 Tone: ${vibePrompts[vibeKey]}
 
-⚡ MANDATORY writing rules:
-1. Every rule MUST be specific to this game - use real elements from the game
-2. Structure: clear condition → clear action → funny twist
-3. Length: 8-20 words per rule (not too short!)
-4. Write in a fun, casual tone - like a friend explaining house rules
-5. Sound like something someone would actually say at game night, not a rulebook
-6. No emojis in the rules themselves
-7. Return exactly 10 rules
-8. Format: JSON array of strings only
+⚡ RULES FOR WRITING:
+1. SHORT! Max 6-10 words per rule
+2. Each rule must mention a specific game element (card name, board space, piece, action from the game)
+3. Simple structure: trigger + action. That's it
+4. Fun and clear - a 10 year old should understand it instantly
+5. No emojis
+6. Return exactly 10 rules as JSON array
 
-Good examples:
-✅ "Rolled doubles? Nice, you get another turn - but you have to swap seats with the player on your left"
-✅ "Landed on someone's property? Pay double rent AND give them a genuine compliment"
-✅ "Chance or Community Chest cards must be read aloud in your best movie villain voice"
-✅ "If you're in the lead, you have to play standing on one foot - fall over and it's back to Start"
-✅ "Buying a property? You gotta sing about it or the deal's off"
-✅ "The dice went missing, so next turn everyone just goes wherever they want"
-✅ "Got three of a kind? Pass them to the player on your right... sorry about that"
+✅ GOOD Monopoly examples:
+- "Land on Free Parking? Swap seats with someone"
+- "Roll doubles? Play the next turn blindfolded"
+- "Go to Jail? Everyone else pays you 50"
+- "Buy a hotel? Do 5 push-ups first"
+- "Pass Go? Pick someone to skip their turn"
+- "Draw Chance? Read it in a robot voice"
 
-Bad examples:
-❌ "Double turn!" - unclear what triggers it
-❌ "Swap!" - swap what with whom?
-❌ "Player skips" - why and when?
+✅ GOOD UNO examples:
+- "Play a +4? Pick someone's card to throw away"
+- "Red card? Play it with your eyes closed"
+- "Reverse card? Everyone swaps hands left"
+- "Skip card? Skipped player picks the next rule"
 
-Game-specific elements:
-- Monopoly: spaces, streets, money, properties, hotels, bank, jail
-- Card games (Taki/UNO): cards, colors, +2/+4, reverse, hands, draw pile
-- Catan: resources, settlements, roads, development cards, robber
-- Dice games: rolls, specific numbers, doubles, snake eyes
-- Rummikub: tiles, runs, groups, jokers
+❌ BAD - too vague:
+- "Double turn!" (what triggers it?)
+- "Everyone swap!" (swap what?)
+- "The player who has the most strategic advantage must reconsider" (way too long)
 
-❌ Do NOT create generic rules that could work for any game!
-❌ Do NOT add markdown or explanations!
-✅ Only JSON: ["rule 1", "rule 2", ...]
+IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gameName}"`} - cards, spaces, pieces, actions that actually exist in this game!
 
-${hasImage ? '📸 Base your rules only on what you see in the image. Create rules that match the specific mechanics of this game.' : `🎮 Identify "${gameName}", understand its unique mechanics, and create rules that twist the original rules in creative ways.`}
+❌ No generic rules! No markdown! No explanations!
+✅ Only: ["rule 1", "rule 2", ...]
 `;
 
       let requestBody = {
