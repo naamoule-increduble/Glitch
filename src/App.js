@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
+const LANGUAGES = {
+  en: { code: 'en', name: 'English', dir: 'ltr' },
+  // Add new languages here, e.g.:
+  // he: { code: 'he', name: 'עברית', dir: 'rtl' },
+};
+
 const translations = {
   en: {
     appName: "GLITCH",
@@ -45,7 +51,9 @@ const translations = {
 
 function App() {
   const API_KEY = process.env.REACT_APP_GEMINI_KEY;
-  const t = translations.en;
+  const [lang] = useState('en');
+  const langConfig = LANGUAGES[lang];
+  const t = translations[lang];
 
   const [screen, setScreen] = useState('home');
   const [gameKey, setGameKey] = useState('');
@@ -676,20 +684,11 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         </div>
       )}
 
-      <div style={{
-        position: 'absolute',
-        bottom: 5,
-        left: 10,
-        fontSize: 10,
-        color: '#333'
-      }}>
-        Queue: {rulesQueue.length} | Fetching: {isFetchingBatch ? 'Y' : 'N'}
-      </div>
     </div>
   );
 
   return (
-    <div className="app-container">
+    <div className="app-container" dir={langConfig.dir} lang={langConfig.code}>
       {screen === 'home' ? renderHome() : renderGame()}
     </div>
   );
