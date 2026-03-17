@@ -18,10 +18,11 @@ const translations = {
     autoModeActive: "AUTO: ON",
     autoModeInactive: "AUTO: OFF",
     recharging: "Recharging...",
-    scanPlaceholder: "Or snap a pic of the box/rules 📸",
+    scanBoxPlaceholder: "Snap the game box 📸",
+    scanRulebookPlaceholder: "Snap your rulebook 📖",
     gameInputPlaceholder: "Type a game name...",
     quickGamesLabel: "Or pick a popular one:",
-    unknownGameWarning: "🤔 Don't know that game. Try snapping a pic of the rules or the box for a better experience!",
+    unknownGameWarning: "Don't know this game! Snap a photo of the rules sheet and I'll read them directly 📖",
     loadingText: "Analyzing...",
     loadingMore: "Loading more...",
     scannedGame: "Scanned game",
@@ -60,6 +61,7 @@ function App() {
   const [customGameName, setCustomGameName] = useState('');
   const [vibeKey, setVibeKey] = useState('chaotic');
   const [imageData, setImageData] = useState(null);
+  const [imageType, setImageType] = useState('box');
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [rulesQueue, setRulesQueue] = useState([]);
   const [isFetchingBatch, setIsFetchingBatch] = useState(false);
@@ -71,6 +73,7 @@ function App() {
 
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const rulebookInputRef = useRef(null);
   const queueRef = useRef([]);
   const flipTimeoutRef = useRef(null);
   const cooldownTimerRef = useRef(null);
@@ -186,7 +189,10 @@ function App() {
       let prompt = `
 You are GLITCH - you create short, punchy, funny twisted rules for board games.
 
-${hasImage ? `📸 Look at this image. Identify the game and its mechanics. Then create 10 GLITCH rules using specific elements you see.` : `🎲 The game: ${gameName}
+${hasImage ? (imageType === 'rulebook'
+  ? `📖 This is a photo of a RULEBOOK / RULES SHEET. Read every rule and mechanic you can see in the text. Then create 10 GLITCH rules that are twisted, funny versions of the ACTUAL rules you read. Each GLITCH rule should directly reference a real rule or mechanic visible in the image.`
+  : `📸 This is a photo of a game BOX or board. Identify the game name and its mechanics from what you see. Then create 10 GLITCH rules using specific elements you identify.`)
+: `🎲 The game: ${gameName}
 
 Do you know "${gameName}"? If yes - create rules. If no - return exactly: "UNKNOWN_GAME"`}
 
@@ -314,7 +320,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
       setIsFetchingBatch(false);
       if (isInitial) setInitialLoading(false);
     }
-  }, [API_KEY, customGameName, gameKey, imageData, isFetchingBatch, t.games, t.vibes, t.errors, vibeKey, sanitizeRule]);
+  }, [API_KEY, customGameName, gameKey, imageData, imageType, isFetchingBatch, t.games, t.vibes, t.errors, vibeKey, sanitizeRule]);
 
   const pullNextRule = useCallback(() => {
     if (isCoolingDown) return;
@@ -375,12 +381,13 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
     };
   }, [isAutoMode, screen, isCoolingDown, pullNextRule]);
 
-  const handleImage = (e) => {
+  const handleImage = (e, type = 'box') => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImageData(reader.result);
+        setImageType(type);
         setGameKey('');
         setCustomGameName('');
         setShowUnknownWarning(false);
@@ -391,12 +398,12 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
 
   const removeImage = () => {
     setImageData(null);
+    setImageType('box');
     setGameKey('');
     setCustomGameName('');
     setShowUnknownWarning(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (rulebookInputRef.current) rulebookInputRef.current.value = '';
   };
 
   const startGame = () => {
@@ -514,7 +521,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
               maxHeight: '180px',
               objectFit: 'cover',
               borderRadius: 8,
-              border: '2px solid #00d4ff'
+              border: `2px solid ${imageType === 'rulebook' ? '#ff9500' : '#00d4ff'}`
             }}
             alt="game preview"
           />
@@ -538,25 +545,44 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
           >×</button>
         </div>
       ) : (
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            width: '100%',
-            padding: '12px',
-            marginTop: 15,
-            background: 'transparent',
-            border: '1px dashed #00d4ff',
-            borderRadius: '8px',
-            color: '#00d4ff',
-            fontSize: '0.9rem',
-            cursor: 'pointer',
-            transition: 'all 0.3s ease'
-          }}
-          onMouseEnter={e => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
-          onMouseLeave={e => e.target.style.background = 'transparent'}
-        >
-          {t.scanPlaceholder}
-        </button>
+        <div style={{display: 'flex', gap: '10px', marginTop: 15}}>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              flex: 1,
+              padding: '12px',
+              background: 'transparent',
+              border: '1px dashed #00d4ff',
+              borderRadius: '8px',
+              color: '#00d4ff',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={e => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
+            onMouseLeave={e => e.target.style.background = 'transparent'}
+          >
+            {t.scanBoxPlaceholder}
+          </button>
+          <button
+            onClick={() => rulebookInputRef.current?.click()}
+            style={{
+              flex: 1,
+              padding: '12px',
+              background: 'transparent',
+              border: '1px dashed #ff9500',
+              borderRadius: '8px',
+              color: '#ff9500',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={e => e.target.style.background = 'rgba(255, 149, 0, 0.1)'}
+            onMouseLeave={e => e.target.style.background = 'transparent'}
+          >
+            {t.scanRulebookPlaceholder}
+          </button>
+        </div>
       )}
 
       <input
@@ -564,7 +590,14 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         ref={fileInputRef}
         style={{display: 'none'}}
         accept="image/*"
-        onChange={handleImage}
+        onChange={(e) => handleImage(e, 'box')}
+      />
+      <input
+        type="file"
+        ref={rulebookInputRef}
+        style={{display: 'none'}}
+        accept="image/*"
+        onChange={(e) => handleImage(e, 'rulebook')}
       />
 
       {/* Vibe Selector */}
