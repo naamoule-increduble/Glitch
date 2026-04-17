@@ -438,7 +438,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
   const canStart = !initialLoading && (!!selectedGame || searchTerm.trim().length > 1 || !!imageData);
 
   const renderHome = () => (
-    <div className="card" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+    <div className="card">
       <h1 className="glitch-title">{t.appName}</h1>
 
       <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
@@ -481,7 +481,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
             position: 'absolute', top: '100%', left: 0, right: 0,
             backgroundColor: '#1a1a1a', border: '1px solid #00d4ff',
             borderTop: 'none', borderRadius: '0 0 8px 8px',
-            zIndex: 100, maxHeight: 240, overflowY: 'auto'
+            zIndex: 9999, maxHeight: 240, overflowY: 'auto'
           }}>
             {searchResults.map(game => (
               <div
