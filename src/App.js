@@ -50,7 +50,7 @@ function App() {
   const [screen, setScreen] = useState('home');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
+
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
   const [gameMechanics, setGameMechanics] = useState('');
@@ -65,6 +65,7 @@ function App() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [currentRule, setCurrentRule] = useState('');
   const [showUnknownWarning, setShowUnknownWarning] = useState(false);
+  const [fetchStatus, setFetchStatus] = useState('Idle');
 
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -113,32 +114,25 @@ function App() {
     if (!query || query.trim().length < 2) {
       setSearchResults([]);
       setShowDropdown(false);
+      setFetchStatus('Idle');
       return;
     }
-    setIsSearching(true);
+    setFetchStatus('Loading');
+    setShowDropdown(true);
     const bggUrl = `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`;
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(bggUrl)}`;
     try {
-      let text;
-      try {
-        const res = await fetch(bggUrl);
-        text = await res.text();
-        console.log('BGG direct fetch OK, length:', text.length);
-      } catch (corsErr) {
-        console.warn('BGG direct fetch failed (CORS?), trying proxy...', corsErr);
-        const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(bggUrl)}`);
-        text = await proxyRes.text();
-        console.log('BGG proxy fetch OK, length:', text.length);
-      }
+      const res = await fetch(proxyUrl);
+      const text = await res.text();
+      console.log('BGG proxy fetch OK, length:', text.length, 'preview:', text.slice(0, 200));
       const results = parseBGGSearch(text);
       console.log('BGG Search Results:', results);
       setSearchResults(results);
-      setShowDropdown(true);
+      setFetchStatus('Success: ' + results.length + ' results');
     } catch (e) {
-      console.error('BGG search completely failed:', e);
+      console.error('BGG search failed:', e);
       setSearchResults([]);
-      setShowDropdown(false);
-    } finally {
-      setIsSearching(false);
+      setFetchStatus('Error: ' + e.message);
     }
   }, []);
 
@@ -466,45 +460,45 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
 
       {/* BGG Search */}
       <div ref={dropdownRef} style={{ position: 'relative', margin: '10px 0' }}>
-        <div style={{ position: 'relative' }}>
-          <input
-            type="text"
-            placeholder={t.gameInputPlaceholder}
-            value={searchTerm}
-            onChange={e => handleSearchChange(e.target.value)}
-            onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
-            style={{
-              width: '100%',
-              padding: '12px 40px 12px 12px',
-              backgroundColor: '#222',
-              border: `1px solid ${selectedGame ? '#00d4ff' : '#00d4ff'}`,
-              color: '#fff',
-              borderRadius: showDropdown ? '8px 8px 0 0' : '8px',
-              fontSize: '1rem',
-              outline: 'none',
-              boxShadow: selectedGame ? '0 0 10px #00d4ff' : 'none',
-              transition: 'all 0.3s ease',
-              fontFamily: 'inherit'
-            }}
-          />
-          {isSearching && (
-            <span style={{
-              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-              color: '#00d4ff', fontSize: '0.8rem'
-            }}>
-              {t.searchingBgg}
-            </span>
-          )}
+        <input
+          type="text"
+          placeholder={t.gameInputPlaceholder}
+          value={searchTerm}
+          onChange={e => handleSearchChange(e.target.value)}
+          onFocus={() => { if (searchTerm.length > 1) setShowDropdown(true); }}
+          style={{
+            width: '100%',
+            padding: '12px',
+            backgroundColor: '#222',
+            border: '1px solid #00d4ff',
+            color: '#fff',
+            borderRadius: '8px',
+            fontSize: '1rem',
+            outline: 'none',
+            boxShadow: selectedGame ? '0 0 10px #00d4ff' : 'none',
+            fontFamily: 'inherit'
+          }}
+        />
+
+        {/* On-screen debug panel */}
+        <div style={{ color: 'yellow', fontSize: '12px', padding: '4px 2px' }}>
+          DEBUG: term="{searchTerm}" | len={searchTerm.length} | results={searchResults.length} | status={fetchStatus}
         </div>
 
-        {showDropdown && searchResults.length > 0 && (
+        {/* Always render dropdown when typing, even while loading */}
+        {showDropdown && searchTerm.length > 1 && (
           <ul style={{
-            position: 'absolute', top: '100%', left: 0, right: 0,
+            position: 'absolute', top: 'calc(100% + 28px)', left: 0, right: 0,
             backgroundColor: '#111', border: '2px solid #ff0055',
-            borderTop: 'none', borderRadius: '0 0 8px 8px',
+            borderRadius: '0 0 8px 8px',
             zIndex: 9999, maxHeight: 250, overflowY: 'auto',
             listStyle: 'none', padding: 0, margin: 0
           }}>
+            {fetchStatus === 'Loading' && (
+              <li style={{ padding: '15px 14px', color: '#aaa', fontSize: '1rem' }}>
+                Fetching from BGG...
+              </li>
+            )}
             {searchResults.map(game => (
               <li
                 key={game.id}
@@ -523,6 +517,11 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
                 {game.year && <span style={{ color: '#888', fontSize: '0.8rem' }}>{game.year}</span>}
               </li>
             ))}
+            {fetchStatus.startsWith('Error') && (
+              <li style={{ padding: '15px 14px', color: '#ff4444', fontSize: '0.85rem' }}>
+                {fetchStatus}
+              </li>
+            )}
           </ul>
         )}
       </div>
