@@ -94,6 +94,21 @@ function App() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const parseBGGSearch = (text) => {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(text, 'text/xml');
+    const items = Array.from(xml.querySelectorAll('item')).slice(0, 8);
+    return items.map(item => {
+      const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
+      const yearEl = item.querySelector('yearpublished');
+      return {
+        id: item.getAttribute('id'),
+        name: nameEl?.getAttribute('value') || 'Unknown',
+        year: yearEl?.getAttribute('value') || ''
+      };
+    }).filter(r => r.name !== 'Unknown');
+  };
+
   const searchBGG = useCallback(async (query) => {
     if (!query || query.trim().length < 2) {
       setSearchResults([]);
@@ -101,28 +116,27 @@ function App() {
       return;
     }
     setIsSearching(true);
+    const bggUrl = `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`;
     try {
-      const res = await fetch(
-        `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`
-      );
-      const text = await res.text();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(text, 'text/xml');
-      const items = Array.from(xml.querySelectorAll('item')).slice(0, 8);
-      const results = items.map(item => {
-        const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
-        const yearEl = item.querySelector('yearpublished');
-        return {
-          id: item.getAttribute('id'),
-          name: nameEl?.getAttribute('value') || 'Unknown',
-          year: yearEl?.getAttribute('value') || ''
-        };
-      }).filter(r => r.name !== 'Unknown');
+      let text;
+      try {
+        const res = await fetch(bggUrl);
+        text = await res.text();
+        console.log('BGG direct fetch OK, length:', text.length);
+      } catch (corsErr) {
+        console.warn('BGG direct fetch failed (CORS?), trying proxy...', corsErr);
+        const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(bggUrl)}`);
+        text = await proxyRes.text();
+        console.log('BGG proxy fetch OK, length:', text.length);
+      }
+      const results = parseBGGSearch(text);
+      console.log('BGG Search Results:', results);
       setSearchResults(results);
-      setShowDropdown(results.length > 0);
+      setShowDropdown(true);
     } catch (e) {
-      console.warn('BGG search failed', e);
+      console.error('BGG search completely failed:', e);
       setSearchResults([]);
+      setShowDropdown(false);
     } finally {
       setIsSearching(false);
     }
@@ -131,11 +145,17 @@ function App() {
   const fetchGameMechanics = useCallback(async (gameId) => {
     if (!gameId) return;
     setIsFetchingMechanics(true);
+    const bggUrl = `https://boardgamegeek.com/xmlapi2/thing?id=${gameId}&stats=0`;
     try {
-      const res = await fetch(
-        `https://boardgamegeek.com/xmlapi2/thing?id=${gameId}&stats=0`
-      );
-      const text = await res.text();
+      let text;
+      try {
+        const res = await fetch(bggUrl);
+        text = await res.text();
+      } catch (corsErr) {
+        console.warn('Mechanics direct fetch failed, trying proxy...', corsErr);
+        const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(bggUrl)}`);
+        text = await proxyRes.text();
+      }
       const parser = new DOMParser();
       const xml = parser.parseFromString(text, 'text/xml');
       const mechanics = Array.from(xml.querySelectorAll('link[type="boardgamemechanic"]'))
@@ -147,10 +167,11 @@ function App() {
         .filter(Boolean)
         .slice(0, 3);
       const combined = [...mechanics, ...categories].join(', ');
+      console.log('BGG Mechanics:', combined);
       setGameMechanics(combined);
       gameMechanicsRef.current = combined;
     } catch (e) {
-      console.warn('BGG mechanics fetch failed', e);
+      console.error('BGG mechanics fetch completely failed:', e);
     } finally {
       setIsFetchingMechanics(false);
     }
@@ -477,31 +498,32 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         </div>
 
         {showDropdown && searchResults.length > 0 && (
-          <div style={{
+          <ul style={{
             position: 'absolute', top: '100%', left: 0, right: 0,
-            backgroundColor: '#1a1a1a', border: '1px solid #00d4ff',
+            backgroundColor: '#111', border: '2px solid #ff0055',
             borderTop: 'none', borderRadius: '0 0 8px 8px',
-            zIndex: 9999, maxHeight: 240, overflowY: 'auto'
+            zIndex: 9999, maxHeight: 250, overflowY: 'auto',
+            listStyle: 'none', padding: 0, margin: 0
           }}>
             {searchResults.map(game => (
-              <div
+              <li
                 key={game.id}
-                onClick={() => handleGameSelect(game)}
+                onMouseDown={e => { e.preventDefault(); handleGameSelect(game); }}
                 style={{
-                  padding: '10px 14px',
+                  padding: '15px 14px',
                   cursor: 'pointer',
                   borderBottom: '1px solid #333',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  transition: 'background 0.2s'
+                  color: '#fff', fontSize: '1rem', backgroundColor: '#111'
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1e1e1e'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#111'}
               >
-                <span style={{ color: '#fff', fontSize: '0.95rem' }}>{game.name}</span>
-                {game.year && <span style={{ color: '#555', fontSize: '0.8rem' }}>{game.year}</span>}
-              </div>
+                <span>{game.name}</span>
+                {game.year && <span style={{ color: '#888', fontSize: '0.8rem' }}>{game.year}</span>}
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
 
