@@ -265,7 +265,7 @@ function App() {
       const hasImage = !!imageData;
       const history = historyRef.current;
 
-      const gameName = game ? game.name : (searchTerm.trim() || 'unknown game');
+      const gameName = game ? game.name : 'unknown game';
 
       const vibePrompts = {
         chaotic: `Total chaos. Flip everything. Example: "Land on Go? Go to Jail instead"`,
@@ -371,7 +371,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
       isFetchingRef.current = false;
       if (isInitial) setInitialLoading(false);
     }
-  }, [API_KEY, imageData, imageType, searchTerm, t.vibes, t.errors, vibeKey, sanitizeRule]);
+  }, [API_KEY, imageData, imageType, t.vibes, t.errors, vibeKey, sanitizeRule]);
 
   const pullNextRule = useCallback(() => {
     if (isCoolingDown) return;
@@ -450,7 +450,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
     fetchRulesBatch(true);
   };
 
-  const canStart = !initialLoading && (!!selectedGame || searchTerm.trim().length > 1 || !!imageData);
+  const canStart = !initialLoading && (!!selectedGame || !!imageData);
 
   const renderHome = () => (
     <div className="card">
@@ -458,37 +458,42 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
 
       <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
 
-      {/* BGG Search */}
+      {/* BGG Search — outer div is the positioning root for the dropdown */}
       <div ref={dropdownRef} style={{ position: 'relative', margin: '10px 0' }}>
-        <input
-          type="text"
-          placeholder={t.gameInputPlaceholder}
-          value={searchTerm}
-          onChange={e => handleSearchChange(e.target.value)}
-          onFocus={() => { if (searchTerm.length > 1) setShowDropdown(true); }}
-          style={{
-            width: '100%',
-            padding: '12px',
-            backgroundColor: '#222',
-            border: '1px solid #00d4ff',
-            color: '#fff',
-            borderRadius: '8px',
-            fontSize: '1rem',
-            outline: 'none',
-            boxShadow: selectedGame ? '0 0 10px #00d4ff' : 'none',
-            fontFamily: 'inherit'
-          }}
-        />
 
-        {/* On-screen debug panel */}
-        <div style={{ color: 'yellow', fontSize: '12px', padding: '4px 2px' }}>
-          DEBUG: term="{searchTerm}" | len={searchTerm.length} | results={searchResults.length} | status={fetchStatus}
+        {/* Input row with lock indicator */}
+        <div style={{ position: 'relative' }}>
+          <input
+            type="text"
+            placeholder={t.gameInputPlaceholder}
+            value={searchTerm}
+            onChange={e => handleSearchChange(e.target.value)}
+            onFocus={() => { if (searchTerm.length > 1 && !selectedGame) setShowDropdown(true); }}
+            style={{
+              width: '100%',
+              padding: selectedGame ? '12px 36px 12px 12px' : '12px',
+              backgroundColor: '#222',
+              border: `1px solid ${selectedGame ? '#00ff88' : '#00d4ff'}`,
+              color: '#fff',
+              borderRadius: '8px',
+              fontSize: '1rem',
+              outline: 'none',
+              boxShadow: selectedGame ? '0 0 10px #00ff88' : 'none',
+              fontFamily: 'inherit'
+            }}
+          />
+          {selectedGame && (
+            <span style={{
+              position: 'absolute', right: 10, top: '50%',
+              transform: 'translateY(-50%)', fontSize: '1.1rem', pointerEvents: 'none'
+            }}>✅</span>
+          )}
         </div>
 
-        {/* Always render dropdown when typing, even while loading */}
-        {showDropdown && searchTerm.length > 1 && (
+        {/* Dropdown — top: 100% is relative to this outer div, not the debug panel */}
+        {showDropdown && searchTerm.length > 1 && !selectedGame && (
           <ul style={{
-            position: 'absolute', top: 'calc(100% + 28px)', left: 0, right: 0,
+            position: 'absolute', top: '100%', left: 0, right: 0,
             backgroundColor: '#111', border: '2px solid #ff0055',
             borderRadius: '0 0 8px 8px',
             zIndex: 9999, maxHeight: 250, overflowY: 'auto',
@@ -504,8 +509,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
                 key={game.id}
                 onMouseDown={e => { e.preventDefault(); handleGameSelect(game); }}
                 style={{
-                  padding: '15px 14px',
-                  cursor: 'pointer',
+                  padding: '15px 14px', cursor: 'pointer',
                   borderBottom: '1px solid #333',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   color: '#fff', fontSize: '1rem', backgroundColor: '#111'
@@ -526,14 +530,19 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         )}
       </div>
 
+      {/* Debug panel — outside the relative dropdown wrapper so it never shifts dropdown position */}
+      <div style={{ color: 'yellow', fontSize: '12px', padding: '2px 0 6px' }}>
+        DEBUG: len={searchTerm.length} | results={searchResults.length} | locked={selectedGame ? selectedGame.name : 'no'} | {fetchStatus}
+      </div>
+
       {/* Mechanics indicator */}
       {selectedGame && (
-        <div style={{ fontSize: '0.8rem', color: '#00d4ff', marginBottom: 8 }}>
+        <div style={{ fontSize: '0.8rem', color: '#00ff88', marginBottom: 8 }}>
           {isFetchingMechanics
             ? '⏳ Loading mechanics...'
             : gameMechanics
               ? `✓ ${gameMechanics}`
-              : ''}
+              : '✓ Game locked in'}
         </div>
       )}
 
