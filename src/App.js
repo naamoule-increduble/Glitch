@@ -111,23 +111,11 @@ function App() {
   };
 
   const proxyFetch = async (url) => {
-    // Primary: allorigins /get returns JSON { contents: "<xml>..." }
-    try {
-      const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-      if (!res.ok) throw new Error('allorigins status ' + res.status);
-      const data = await res.json();
-      if (!data.contents) throw new Error('allorigins empty contents');
-      console.log('allorigins OK, length:', data.contents.length);
-      return data.contents;
-    } catch (e1) {
-      console.warn('allorigins failed, trying codetabs...', e1.message);
-      // Fallback: codetabs returns raw XML text directly
-      const res2 = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
-      if (!res2.ok) throw new Error('codetabs status ' + res2.status);
-      const text = await res2.text();
-      console.log('codetabs OK, length:', text.length);
-      return text;
-    }
+    const res = await fetch(`/api/bgg?url=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error('bgg proxy status ' + res.status);
+    const text = await res.text();
+    console.log('BGG proxy OK, length:', text.length);
+    return text;
   };
 
   const searchBGG = useCallback(async (query) => {
