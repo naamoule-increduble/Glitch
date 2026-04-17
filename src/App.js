@@ -96,9 +96,21 @@ function App() {
   }, []);
 
   const parseBGGSearch = (text) => {
+    if (!text || text.length < 30) return [];
+    // BGG sometimes returns a retry message — surface it
+    if (text.includes('<message>')) {
+      console.warn('BGG returned a message instead of results:', text);
+      return [];
+    }
     const parser = new DOMParser();
     const xml = parser.parseFromString(text, 'text/xml');
+    // Check for parse error
+    if (xml.querySelector('parsererror')) {
+      console.error('XML parse error. Raw text:', text.slice(0, 200));
+      return [];
+    }
     const items = Array.from(xml.querySelectorAll('item')).slice(0, 8);
+    console.log('XML items found:', items.length, '| total attr:', xml.querySelector('items')?.getAttribute('total'));
     return items.map(item => {
       const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
       const yearEl = item.querySelector('yearpublished');
@@ -114,7 +126,7 @@ function App() {
     const res = await fetch(`/api/bgg?url=${encodeURIComponent(url)}`);
     if (!res.ok) throw new Error('bgg proxy status ' + res.status);
     const text = await res.text();
-    console.log('BGG proxy OK, length:', text.length);
+    console.log('BGG raw response (' + text.length + ' chars):', JSON.stringify(text.slice(0, 300)));
     return text;
   };
 
@@ -127,13 +139,17 @@ function App() {
     }
     setFetchStatus('Loading');
     setShowDropdown(true);
-    const url = `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`;
+    const url = `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame`;
     try {
       const text = await proxyFetch(url);
       const results = parseBGGSearch(text);
-      console.log('Search results:', results);
+      console.log('Parsed results:', results);
       setSearchResults(results);
-      setFetchStatus('Success: ' + results.length);
+      if (results.length === 0) {
+        setFetchStatus('Error: 0 results. Raw: ' + text.slice(0, 80));
+      } else {
+        setFetchStatus('Success: ' + results.length);
+      }
     } catch (e) {
       console.error('Search failed:', e);
       setSearchResults([]);
