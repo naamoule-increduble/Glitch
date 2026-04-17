@@ -292,7 +292,7 @@ function App() {
       const hasImage = !!imageData;
       const history = historyRef.current;
 
-      const gameName = game ? game.name : 'unknown game';
+      const gameName = game ? game.name : (searchTerm.trim() || 'unknown game');
 
       const vibePrompts = {
         chaotic: `Total chaos. Flip everything. Example: "Land on Go? Go to Jail instead"`,
@@ -398,7 +398,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
       isFetchingRef.current = false;
       if (isInitial) setInitialLoading(false);
     }
-  }, [API_KEY, imageData, imageType, t.vibes, t.errors, vibeKey, sanitizeRule]);
+  }, [API_KEY, imageData, imageType, searchTerm, t.vibes, t.errors, vibeKey, sanitizeRule]);
 
   const pullNextRule = useCallback(() => {
     if (isCoolingDown) return;
@@ -476,7 +476,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
     fetchRulesBatch(true);
   };
 
-  const canStart = !initialLoading && (!!selectedGame || !!imageData);
+  const canStart = !initialLoading && (searchTerm.trim().length > 1 || !!imageData);
 
   const renderHome = () => (
     <div className="card">
@@ -547,21 +547,10 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
                 {game.year && <span style={{ color: '#888', fontSize: '0.8rem' }}>{game.year}</span>}
               </li>
             ))}
-            {fetchStatus.startsWith('Error') && (
-              <li style={{ padding: '15px 14px', color: '#ff4444', fontSize: '0.85rem' }}>
-                {fetchStatus}
-              </li>
-            )}
           </ul>
         )}
       </div>
 
-      {/* Debug panel — only shown on error */}
-      {fetchStatus.startsWith('Error') && (
-        <div style={{ color: 'yellow', fontSize: '12px', padding: '2px 0 6px' }}>
-          DEBUG: {fetchStatus}
-        </div>
-      )}
 
       {/* Mechanics indicator */}
       {selectedGame && (
