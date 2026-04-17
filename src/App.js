@@ -3,8 +3,6 @@ import './App.css';
 
 const LANGUAGES = {
   en: { code: 'en', name: 'English', dir: 'ltr' },
-  // Add new languages here, e.g.:
-  // he: { code: 'he', name: 'עברית', dir: 'rtl' },
 };
 
 const translations = {
@@ -20,21 +18,14 @@ const translations = {
     recharging: "Recharging...",
     scanBoxPlaceholder: "Snap the game box 📸",
     scanRulebookPlaceholder: "Snap your rulebook 📖",
-    gameInputPlaceholder: "Type a game name...",
-    quickGamesLabel: "Or pick a popular one:",
+    gameInputPlaceholder: "Search a board game...",
     unknownGameWarning: "Don't know this game! Snap a photo of the rules sheet and I'll read them directly 📖",
     loadingText: "Analyzing...",
     loadingMore: "Loading more...",
     scannedGame: "Scanned game",
     autoModeDesc: "System fires automatically every 45-90 seconds",
-    games: {
-      monopoly: "Monopoly",
-      taki: "Taki",
-      catan: "Catan",
-      poker: "Poker",
-      rummikub: "Rummikub",
-      uno: "UNO"
-    },
+    searchingBgg: "Searching...",
+    mechanicsLoaded: "Game mechanics loaded",
     vibes: {
       chaotic: "Chaos 🔥",
       drinking: "Drinks 🍻",
@@ -57,35 +48,139 @@ function App() {
   const t = translations[lang];
 
   const [screen, setScreen] = useState('home');
-  const [gameKey, setGameKey] = useState('');
-  const [customGameName, setCustomGameName] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedGame, setSelectedGame] = useState(null);
+  const [gameMechanics, setGameMechanics] = useState('');
+  const [isFetchingMechanics, setIsFetchingMechanics] = useState(false);
   const [vibeKey, setVibeKey] = useState('chaotic');
   const [imageData, setImageData] = useState(null);
   const [imageType, setImageType] = useState('box');
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [rulesQueue, setRulesQueue] = useState([]);
-  const [isFetchingBatch, setIsFetchingBatch] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
   const [isCoolingDown, setIsCoolingDown] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [currentRule, setCurrentRule] = useState("");
+  const [currentRule, setCurrentRule] = useState('');
   const [showUnknownWarning, setShowUnknownWarning] = useState(false);
 
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
   const rulebookInputRef = useRef(null);
+  const searchDebounceRef = useRef(null);
+  const dropdownRef = useRef(null);
   const queueRef = useRef([]);
   const flipTimeoutRef = useRef(null);
   const cooldownTimerRef = useRef(null);
+  const isFetchingRef = useRef(false);
+  const gameMechanicsRef = useRef('');
+  const selectedGameRef = useRef(null);
+  const historyRef = useRef([]);
 
+  useEffect(() => { queueRef.current = rulesQueue; }, [rulesQueue]);
+  useEffect(() => { gameMechanicsRef.current = gameMechanics; }, [gameMechanics]);
+  useEffect(() => { selectedGameRef.current = selectedGame; }, [selectedGame]);
+
+  // Close dropdown on outside click
   useEffect(() => {
-    queueRef.current = rulesQueue;
-  }, [rulesQueue]);
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const searchBGG = useCallback(async (query) => {
+    if (!query || query.trim().length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const res = await fetch(
+        `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`
+      );
+      const text = await res.text();
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(text, 'text/xml');
+      const items = Array.from(xml.querySelectorAll('item')).slice(0, 8);
+      const results = items.map(item => {
+        const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
+        const yearEl = item.querySelector('yearpublished');
+        return {
+          id: item.getAttribute('id'),
+          name: nameEl?.getAttribute('value') || 'Unknown',
+          year: yearEl?.getAttribute('value') || ''
+        };
+      }).filter(r => r.name !== 'Unknown');
+      setSearchResults(results);
+      setShowDropdown(results.length > 0);
+    } catch (e) {
+      console.warn('BGG search failed', e);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  const fetchGameMechanics = useCallback(async (gameId) => {
+    if (!gameId) return;
+    setIsFetchingMechanics(true);
+    try {
+      const res = await fetch(
+        `https://boardgamegeek.com/xmlapi2/thing?id=${gameId}&stats=0`
+      );
+      const text = await res.text();
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(text, 'text/xml');
+      const mechanics = Array.from(xml.querySelectorAll('link[type="boardgamemechanic"]'))
+        .map(el => el.getAttribute('value'))
+        .filter(Boolean)
+        .slice(0, 6);
+      const categories = Array.from(xml.querySelectorAll('link[type="boardgamecategory"]'))
+        .map(el => el.getAttribute('value'))
+        .filter(Boolean)
+        .slice(0, 3);
+      const combined = [...mechanics, ...categories].join(', ');
+      setGameMechanics(combined);
+      gameMechanicsRef.current = combined;
+    } catch (e) {
+      console.warn('BGG mechanics fetch failed', e);
+    } finally {
+      setIsFetchingMechanics(false);
+    }
+  }, []);
+
+  const handleSearchChange = useCallback((value) => {
+    setSearchTerm(value);
+    setSelectedGame(null);
+    selectedGameRef.current = null;
+    setGameMechanics('');
+    gameMechanicsRef.current = '';
+    setShowUnknownWarning(false);
+
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      searchBGG(value);
+    }, 500);
+  }, [searchBGG]);
+
+  const handleGameSelect = useCallback((game) => {
+    setSelectedGame(game);
+    selectedGameRef.current = game;
+    setSearchTerm(game.name);
+    setShowDropdown(false);
+    setShowUnknownWarning(false);
+    fetchGameMechanics(game.id);
+  }, [fetchGameMechanics]);
 
   const sanitizeRule = useCallback((item) => {
-    if (typeof item === 'string') {
-      return item.trim();
-    }
+    if (typeof item === 'string') return item.trim();
     if (typeof item === 'object' && item !== null) {
       const text = item.rule || item.text || item.description ||
                    item.rule_name || item.content || Object.values(item)[0];
@@ -96,23 +191,17 @@ function App() {
 
   const hardReset = useCallback(() => {
     setIsFlipped(false);
-    setCurrentRule("");
+    setCurrentRule('');
     setRulesQueue([]);
+    queueRef.current = [];
     setIsCoolingDown(false);
     setIsAutoMode(false);
+    isFetchingRef.current = false;
+    historyRef.current = [];
 
-    if (flipTimeoutRef.current) {
-      clearTimeout(flipTimeoutRef.current);
-      flipTimeoutRef.current = null;
-    }
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    if (cooldownTimerRef.current) {
-      clearTimeout(cooldownTimerRef.current);
-      cooldownTimerRef.current = null;
-    }
+    if (flipTimeoutRef.current) { clearTimeout(flipTimeoutRef.current); flipTimeoutRef.current = null; }
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (cooldownTimerRef.current) { clearTimeout(cooldownTimerRef.current); cooldownTimerRef.current = null; }
   }, []);
 
   const exitGame = () => {
@@ -121,38 +210,29 @@ function App() {
   };
 
   const triggerGlitchEffect = () => {
-    if (navigator.vibrate) {
-      navigator.vibrate([100, 50, 100]);
-    }
-
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (AudioContext) {
         const ctx = new AudioContext();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(100, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.15);
-
         gain.gain.setValueAtTime(0.1, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.2);
       }
-    } catch (e) {
-      console.log("Audio not supported", e);
-    }
+    } catch (e) {}
   };
 
   const fetchRulesBatch = useCallback(async (isInitial = false) => {
-    if (isFetchingBatch) return;
-
-    setIsFetchingBatch(true);
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (isInitial) setInitialLoading(true);
 
     try {
@@ -160,25 +240,17 @@ function App() {
         `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`
       );
       const listData = await listRes.json();
+      let bestModel = listData.models?.find(m => m.name.includes('flash'))?.name
+        || listData.models?.find(m => m.name.includes('gemini-1.5-pro'))?.name
+        || listData.models?.[0]?.name
+        || 'models/gemini-1.5-flash';
 
-      let bestModel = listData.models?.find(m => m.name.includes("flash"))?.name;
-      if (!bestModel) {
-        bestModel = listData.models?.find(m => m.name.includes("gemini-1.5-pro"))?.name;
-      }
-      if (!bestModel && listData.models?.length > 0) {
-        bestModel = listData.models[0].name;
-      }
-      if (!bestModel) {
-        bestModel = "models/gemini-1.5-flash";
-      }
-
-      console.log("🤖 Using Model:", bestModel);
-
-      const gameName = (customGameName && customGameName.trim() !== '')
-        ? customGameName
-        : (gameKey ? t.games[gameKey] : 'unknown game');
-
+      const game = selectedGameRef.current;
+      const mechanics = gameMechanicsRef.current;
       const hasImage = !!imageData;
+      const history = historyRef.current;
+
+      const gameName = game ? game.name : (searchTerm.trim() || 'unknown game');
 
       const vibePrompts = {
         chaotic: `Total chaos. Flip everything. Example: "Land on Go? Go to Jail instead"`,
@@ -186,15 +258,22 @@ function App() {
         funny: `Silly family fun. Example: "Buy a property? Say it in a silly voice"`
       };
 
-      let prompt = `
-You are GLITCH - you create short, punchy, funny twisted rules for board games.
+      const historyBlock = history.length > 0
+        ? `\n\n❌ DO NOT repeat these rules (already shown):\n${history.slice(-20).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
+        : '';
+
+      const mechanicsBlock = mechanics
+        ? `\n🔧 Core mechanics/categories: ${mechanics}`
+        : '';
+
+      let prompt = `You are GLITCH - you create short, punchy, funny twisted rules for board games.
 
 ${hasImage ? (imageType === 'rulebook'
   ? `📖 This is a photo of a RULEBOOK / RULES SHEET. Read every rule and mechanic you can see in the text. Then create 10 GLITCH rules that are twisted, funny versions of the ACTUAL rules you read. Each GLITCH rule should directly reference a real rule or mechanic visible in the image.`
   : `📸 This is a photo of a game BOX or board. Identify the game name and its mechanics from what you see. Then create 10 GLITCH rules using specific elements you identify.`)
-: `🎲 The game: ${gameName}
+: `🎲 The game: ${gameName}${mechanicsBlock}
 
-Do you know "${gameName}"? If yes - create rules. If no - return exactly: "UNKNOWN_GAME"`}
+Do you know "${gameName}"? If yes - create rules. If no - return exactly: ["UNKNOWN_GAME"]`}
 
 🎯 Vibe: ${t.vibes[vibeKey]}
 📋 Tone: ${vibePrompts[vibeKey]}
@@ -205,146 +284,101 @@ Do you know "${gameName}"? If yes - create rules. If no - return exactly: "UNKNO
 3. Simple structure: trigger + action. That's it
 4. Fun and clear - a 10 year old should understand it instantly
 5. No emojis
-6. Return exactly 10 rules as JSON array
-
-✅ GOOD Monopoly examples:
-- "Land on Free Parking? Swap seats with someone"
-- "Roll doubles? Play the next turn blindfolded"
-- "Go to Jail? Everyone else pays you 50"
-- "Buy a hotel? Do 5 push-ups first"
-- "Pass Go? Pick someone to skip their turn"
-- "Draw Chance? Read it in a robot voice"
-
-✅ GOOD UNO examples:
-- "Play a +4? Pick someone's card to throw away"
-- "Red card? Play it with your eyes closed"
-- "Reverse card? Everyone swaps hands left"
-- "Skip card? Skipped player picks the next rule"
-
-❌ BAD - too vague:
-- "Double turn!" (what triggers it?)
-- "Everyone swap!" (swap what?)
-- "The player who has the most strategic advantage must reconsider" (way too long)
+6. Return exactly 10 rules as JSON array${historyBlock}
 
 IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gameName}"`} - cards, spaces, pieces, actions that actually exist in this game!
-
 ❌ No generic rules! No markdown! No explanations!
-✅ Only: ["rule 1", "rule 2", ...]
-`;
+✅ Only: ["rule 1", "rule 2", ...]`;
 
       let requestBody = {
-        contents: [{
-          parts: [{ text: prompt }]
-        }]
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' }
       };
 
       if (hasImage) {
         requestBody.contents[0].parts.push({
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: imageData.split(',')[1]
-          }
+          inlineData: { mimeType: 'image/jpeg', data: imageData.split(',')[1] }
         });
       }
 
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/${bestModel}:generateContent?key=${API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody)
-        }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }
       );
-
       const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
 
-      if (data.error) {
-        throw new Error(data.error.message);
-      }
+      let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+      rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
-      let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+      let parsed;
+      try { parsed = JSON.parse(rawText); } catch (e) { parsed = []; }
 
-      rawText = rawText
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
-
-      // Check if game is unknown
-      if (rawText.includes("UNKNOWN_GAME")) {
-        console.log("⚠️ Unknown game detected");
+      if (Array.isArray(parsed) && parsed.length === 1 && parsed[0] === 'UNKNOWN_GAME') {
         setShowUnknownWarning(true);
-        setIsFetchingBatch(false);
+        isFetchingRef.current = false;
         if (isInitial) setInitialLoading(false);
         return;
       }
 
       setShowUnknownWarning(false);
-      let newRulesArray = [];
+      let newRules = [];
 
-      try {
-        const parsed = JSON.parse(rawText);
-        if (Array.isArray(parsed)) {
-          newRulesArray = parsed
-            .map(item => sanitizeRule(item))
-            .filter(rule => rule.length > 0 && rule.length < 200);
-        }
-      } catch (e) {
-        console.warn("⚠️ JSON parsing failed, using fallback", e);
-        newRulesArray = rawText
-          .split("\n")
-          .map(line => line.trim())
-          .filter(line => line.length > 5 && line.length < 200)
+      if (Array.isArray(parsed)) {
+        newRules = parsed
+          .map(item => sanitizeRule(item))
+          .filter(rule => rule.length > 0 && rule.length < 200 && rule !== 'UNKNOWN_GAME');
+      } else {
+        newRules = rawText
+          .split('\n')
+          .map(l => l.trim())
+          .filter(l => l.length > 5 && l.length < 200)
           .slice(0, 10);
       }
 
-      console.log(`✅ Fetched ${newRulesArray.length} rules`);
+      setRulesQueue(prev => {
+        const updated = [...prev, ...newRules];
+        queueRef.current = updated;
+        return updated;
+      });
 
-      setRulesQueue(prevQueue => [...prevQueue, ...newRulesArray]);
-
-      if (isInitial) {
-        setScreen('game');
-      }
+      if (isInitial) setScreen('game');
 
     } catch (error) {
-      console.error("❌ Fetch Error:", error);
-
+      console.error('Fetch Error:', error);
       if (isInitial) {
-        setRulesQueue([
-          t.errors.networkError,
-          t.errors.checkConnection,
-          t.errors.tryAgain
-        ]);
+        const fallback = [t.errors.networkError, t.errors.checkConnection, t.errors.tryAgain];
+        setRulesQueue(fallback);
+        queueRef.current = fallback;
         setScreen('game');
       }
     } finally {
-      setIsFetchingBatch(false);
+      isFetchingRef.current = false;
       if (isInitial) setInitialLoading(false);
     }
-  }, [API_KEY, customGameName, gameKey, imageData, imageType, isFetchingBatch, t.games, t.vibes, t.errors, vibeKey, sanitizeRule]);
+  }, [API_KEY, imageData, imageType, searchTerm, t.vibes, t.errors, vibeKey, sanitizeRule]);
 
   const pullNextRule = useCallback(() => {
     if (isCoolingDown) return;
 
     setIsCoolingDown(true);
-    cooldownTimerRef.current = setTimeout(() => {
-      setIsCoolingDown(false);
-    }, 5000);
-
+    cooldownTimerRef.current = setTimeout(() => setIsCoolingDown(false), 5000);
     setIsFlipped(false);
 
     flipTimeoutRef.current = setTimeout(() => {
-      let nextRule = "";
+      let nextRule = '';
 
       if (queueRef.current.length > 0) {
         const tempQueue = [...queueRef.current];
         const item = tempQueue.shift();
-
         nextRule = sanitizeRule(item);
+        queueRef.current = tempQueue;
         setRulesQueue(tempQueue);
         setCurrentRule(nextRule);
 
-        if (tempQueue.length < 3 && !isFetchingBatch) {
-          console.log("🔄 Refilling queue...");
+        historyRef.current = [...historyRef.current, nextRule];
+
+        if (tempQueue.length <= 3 && !isFetchingRef.current) {
           fetchRulesBatch(false);
         }
       } else {
@@ -355,30 +389,19 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
       triggerGlitchEffect();
       setIsFlipped(true);
     }, 600);
-  }, [isCoolingDown, isFetchingBatch, fetchRulesBatch, sanitizeRule, t.loadingMore]);
+  }, [isCoolingDown, fetchRulesBatch, sanitizeRule, t.loadingMore]);
 
   useEffect(() => {
     const scheduleNext = () => {
       const delay = Math.floor(Math.random() * (90000 - 45000 + 1)) + 45000;
-
       timerRef.current = setTimeout(() => {
-        if (isAutoMode && screen === 'game' && !isCoolingDown) {
-          pullNextRule();
-        }
+        if (isAutoMode && screen === 'game' && !isCoolingDown) pullNextRule();
         scheduleNext();
       }, delay);
     };
 
-    if (screen === 'game' && isAutoMode) {
-      scheduleNext();
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+    if (screen === 'game' && isAutoMode) scheduleNext();
+    return () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
   }, [isAutoMode, screen, isCoolingDown, pullNextRule]);
 
   const handleImage = (e, type = 'box') => {
@@ -388,8 +411,11 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
       reader.onloadend = () => {
         setImageData(reader.result);
         setImageType(type);
-        setGameKey('');
-        setCustomGameName('');
+        setSelectedGame(null);
+        selectedGameRef.current = null;
+        setSearchTerm('');
+        setGameMechanics('');
+        gameMechanicsRef.current = '';
         setShowUnknownWarning(false);
       };
       reader.readAsDataURL(file);
@@ -399,8 +425,6 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
   const removeImage = () => {
     setImageData(null);
     setImageType('box');
-    setGameKey('');
-    setCustomGameName('');
     setShowUnknownWarning(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (rulebookInputRef.current) rulebookInputRef.current.value = '';
@@ -411,153 +435,127 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
     fetchRulesBatch(true);
   };
 
+  const canStart = !initialLoading && (!!selectedGame || searchTerm.trim().length > 1 || !!imageData);
+
   const renderHome = () => (
-    <div className="card" style={{maxHeight: '90vh', overflowY: 'auto'}}>
+    <div className="card" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
       <h1 className="glitch-title">{t.appName}</h1>
 
-      <label style={{marginTop: 20}}>{t.chooseGameLabel}</label>
+      <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
 
-      {/* Text Input for Game Name */}
-      <input
-        type="text"
-        placeholder={t.gameInputPlaceholder}
-        value={customGameName}
-        onChange={e => {
-          setCustomGameName(e.target.value);
-          setShowUnknownWarning(false);
-        }}
-        className="neon-input"
-        style={{
-          width: '100%',
-          padding: '12px',
-          margin: '10px 0',
-          backgroundColor: '#222',
-          border: '1px solid #00d4ff',
-          color: '#fff',
-          borderRadius: '8px',
-          textAlign: 'left',
-          fontSize: '1rem',
-          outline: 'none',
-          boxShadow: customGameName ? '0 0 10px #00d4ff' : 'none',
-          transition: 'all 0.3s ease'
-        }}
-      />
+      {/* BGG Search */}
+      <div ref={dropdownRef} style={{ position: 'relative', margin: '10px 0' }}>
+        <div style={{ position: 'relative' }}>
+          <input
+            type="text"
+            placeholder={t.gameInputPlaceholder}
+            value={searchTerm}
+            onChange={e => handleSearchChange(e.target.value)}
+            onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
+            style={{
+              width: '100%',
+              padding: '12px 40px 12px 12px',
+              backgroundColor: '#222',
+              border: `1px solid ${selectedGame ? '#00d4ff' : '#00d4ff'}`,
+              color: '#fff',
+              borderRadius: showDropdown ? '8px 8px 0 0' : '8px',
+              fontSize: '1rem',
+              outline: 'none',
+              boxShadow: selectedGame ? '0 0 10px #00d4ff' : 'none',
+              transition: 'all 0.3s ease',
+              fontFamily: 'inherit'
+            }}
+          />
+          {isSearching && (
+            <span style={{
+              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+              color: '#00d4ff', fontSize: '0.8rem'
+            }}>
+              {t.searchingBgg}
+            </span>
+          )}
+        </div>
+
+        {showDropdown && searchResults.length > 0 && (
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, right: 0,
+            backgroundColor: '#1a1a1a', border: '1px solid #00d4ff',
+            borderTop: 'none', borderRadius: '0 0 8px 8px',
+            zIndex: 100, maxHeight: 240, overflowY: 'auto'
+          }}>
+            {searchResults.map(game => (
+              <div
+                key={game.id}
+                onClick={() => handleGameSelect(game)}
+                style={{
+                  padding: '10px 14px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #333',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  transition: 'background 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span style={{ color: '#fff', fontSize: '0.95rem' }}>{game.name}</span>
+                {game.year && <span style={{ color: '#555', fontSize: '0.8rem' }}>{game.year}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Mechanics indicator */}
+      {selectedGame && (
+        <div style={{ fontSize: '0.8rem', color: '#00d4ff', marginBottom: 8 }}>
+          {isFetchingMechanics
+            ? '⏳ Loading mechanics...'
+            : gameMechanics
+              ? `✓ ${gameMechanics}`
+              : ''}
+        </div>
+      )}
 
       {/* Unknown Game Warning */}
       {showUnknownWarning && !imageData && (
         <div style={{
-          backgroundColor: 'rgba(255, 165, 0, 0.1)',
-          border: '1px solid #ffa500',
-          borderRadius: '8px',
-          padding: '12px',
-          margin: '10px 0',
-          color: '#ffa500',
-          textAlign: 'center',
-          fontSize: '0.9rem'
+          backgroundColor: 'rgba(255, 165, 0, 0.1)', border: '1px solid #ffa500',
+          borderRadius: '8px', padding: '12px', margin: '10px 0',
+          color: '#ffa500', textAlign: 'center', fontSize: '0.9rem'
         }}>
           {t.unknownGameWarning}
         </div>
       )}
 
-      {/* Quick Game Buttons */}
-      {!imageData && (
-        <>
-          <label style={{fontSize: '0.85rem', marginTop: 15}}>{t.quickGamesLabel}</label>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '10px',
-            marginTop: 10
-          }}>
-            {Object.keys(t.games).map(key => (
-              <button
-                key={key}
-                onClick={() => {
-                  setCustomGameName(t.games[key]);
-                  setGameKey(key);
-                  setShowUnknownWarning(false);
-                }}
-                style={{
-                  padding: '10px',
-                  background: customGameName === t.games[key] ? 'rgba(0, 212, 255, 0.2)' : 'transparent',
-                  border: '1px solid #00d4ff',
-                  borderRadius: '8px',
-                  color: '#00d4ff',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={e => {
-                  if (customGameName !== t.games[key]) {
-                    e.target.style.background = 'rgba(0, 212, 255, 0.1)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (customGameName !== t.games[key]) {
-                    e.target.style.background = 'transparent';
-                  }
-                }}
-              >
-                {t.games[key]}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
       {/* Image Upload Section */}
       {imageData ? (
-        <div style={{
-          position: 'relative',
-          marginTop: 15,
-          marginBottom: 15,
-          display: 'flex',
-          justifyContent: 'center'
-        }}>
+        <div style={{ position: 'relative', marginTop: 15, marginBottom: 15, display: 'flex', justifyContent: 'center' }}>
           <img
             src={imageData}
             style={{
-              width: '100%',
-              maxHeight: '180px',
-              objectFit: 'cover',
-              borderRadius: 8,
-              border: `2px solid ${imageType === 'rulebook' ? '#ff9500' : '#00d4ff'}`
+              width: '100%', maxHeight: '180px', objectFit: 'cover',
+              borderRadius: 8, border: `2px solid ${imageType === 'rulebook' ? '#ff9500' : '#00d4ff'}`
             }}
             alt="game preview"
           />
           <button
             onClick={removeImage}
             style={{
-              position: 'absolute',
-              top: 5,
-              right: 5,
-              background: 'rgba(0,0,0,0.8)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '50%',
-              width: 30,
-              height: 30,
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              zIndex: 10
+              position: 'absolute', top: 5, right: 5,
+              background: 'rgba(0,0,0,0.8)', color: 'white', border: 'none',
+              borderRadius: '50%', width: 30, height: 30,
+              cursor: 'pointer', fontSize: '1rem', fontWeight: 'bold', zIndex: 10
             }}
           >×</button>
         </div>
       ) : (
-        <div style={{display: 'flex', gap: '10px', marginTop: 15}}>
+        <div style={{ display: 'flex', gap: '10px', marginTop: 15 }}>
           <button
             onClick={() => fileInputRef.current?.click()}
             style={{
-              flex: 1,
-              padding: '12px',
-              background: 'transparent',
-              border: '1px dashed #00d4ff',
-              borderRadius: '8px',
-              color: '#00d4ff',
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              transition: 'all 0.3s ease'
+              flex: 1, padding: '12px', background: 'transparent',
+              border: '1px dashed #00d4ff', borderRadius: '8px',
+              color: '#00d4ff', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.3s ease'
             }}
             onMouseEnter={e => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
             onMouseLeave={e => e.target.style.background = 'transparent'}
@@ -567,15 +565,9 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
           <button
             onClick={() => rulebookInputRef.current?.click()}
             style={{
-              flex: 1,
-              padding: '12px',
-              background: 'transparent',
-              border: '1px dashed #ff9500',
-              borderRadius: '8px',
-              color: '#ff9500',
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              transition: 'all 0.3s ease'
+              flex: 1, padding: '12px', background: 'transparent',
+              border: '1px dashed #ff9500', borderRadius: '8px',
+              color: '#ff9500', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.3s ease'
             }}
             onMouseEnter={e => e.target.style.background = 'rgba(255, 149, 0, 0.1)'}
             onMouseLeave={e => e.target.style.background = 'transparent'}
@@ -585,27 +577,12 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         </div>
       )}
 
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{display: 'none'}}
-        accept="image/*"
-        onChange={(e) => handleImage(e, 'box')}
-      />
-      <input
-        type="file"
-        ref={rulebookInputRef}
-        style={{display: 'none'}}
-        accept="image/*"
-        onChange={(e) => handleImage(e, 'rulebook')}
-      />
+      <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept="image/*" onChange={e => handleImage(e, 'box')} />
+      <input type="file" ref={rulebookInputRef} style={{ display: 'none' }} accept="image/*" onChange={e => handleImage(e, 'rulebook')} />
 
       {/* Vibe Selector */}
-      <label style={{marginTop: 20}}>{t.chooseVibeLabel}</label>
-      <select
-        value={vibeKey}
-        onChange={e => setVibeKey(e.target.value)}
-      >
+      <label style={{ marginTop: 20 }}>{t.chooseVibeLabel}</label>
+      <select value={vibeKey} onChange={e => setVibeKey(e.target.value)}>
         {Object.keys(t.vibes).map(k => (
           <option key={k} value={k}>{t.vibes[k]}</option>
         ))}
@@ -615,11 +592,8 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
       <button
         className="neon-btn"
         onClick={startGame}
-        disabled={initialLoading || (!customGameName.trim() && !imageData)}
-        style={{
-          opacity: (initialLoading || (!customGameName.trim() && !imageData)) ? 0.5 : 1,
-          marginTop: 20
-        }}
+        disabled={!canStart}
+        style={{ opacity: canStart ? 1 : 0.5, marginTop: 20 }}
       >
         {initialLoading ? t.loadingText : t.startGameBtn}
       </button>
@@ -628,42 +602,24 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
 
   const renderGame = () => (
     <div className="card">
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 20
-      }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <button
           onClick={exitGame}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#00d4ff',
-            fontSize: '1.5rem',
-            cursor: 'pointer',
-            padding: 5
-          }}
+          style={{ background: 'none', border: 'none', color: '#00d4ff', fontSize: '1.5rem', cursor: 'pointer', padding: 5 }}
         >
           🔙
         </button>
-
-        <div style={{color: '#aaa', fontSize: '0.9rem'}}>
-          {imageData && !customGameName
+        <div style={{ color: '#aaa', fontSize: '0.9rem' }}>
+          {imageData && !searchTerm
             ? t.scannedGame
-            : (customGameName || t.games[gameKey] || '')
-          }
+            : (selectedGame?.name || searchTerm || '')}
         </div>
       </div>
 
       <div className="flip-container">
         <div className={`flipper ${isFlipped ? 'flip-active' : ''}`}>
-          <div className="front">
-            {t.cardBackText}
-          </div>
-          <div className="back">
-            {currentRule || t.rulePlaceholder}
-          </div>
+          <div className="front">{t.cardBackText}</div>
+          <div className="back">{currentRule || t.rulePlaceholder}</div>
         </div>
       </div>
 
@@ -675,48 +631,32 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
           style={{
             borderColor: isCoolingDown ? '#ff0055' : '#00d4ff',
             color: isCoolingDown ? '#ff0055' : '#fff',
-            boxShadow: isCoolingDown
-              ? '0 0 15px #ff0055'
-              : '0 0 20px #00d4ff',
+            boxShadow: isCoolingDown ? '0 0 15px #ff0055' : '0 0 20px #00d4ff',
             opacity: isCoolingDown ? 0.7 : 1,
             cursor: isCoolingDown ? 'not-allowed' : 'pointer'
           }}
         >
-          {isCoolingDown ? t.recharging : "GLITCH"}
+          {isCoolingDown ? t.recharging : 'GLITCH'}
         </button>
       )}
 
-      <div style={{height: 30}}></div>
+      <div style={{ height: 30 }} />
 
       <div className="auto-switch">
-        <span style={{
-          color: isAutoMode ? '#00d4ff' : '#555',
-          fontWeight: 'bold'
-        }}>
+        <span style={{ color: isAutoMode ? '#00d4ff' : '#555', fontWeight: 'bold' }}>
           {isAutoMode ? t.autoModeActive : t.autoModeInactive}
         </span>
-
         <label className="switch">
-          <input
-            type="checkbox"
-            checked={isAutoMode}
-            onChange={e => setIsAutoMode(e.target.checked)}
-          />
-          <span className="slider"></span>
+          <input type="checkbox" checked={isAutoMode} onChange={e => setIsAutoMode(e.target.checked)} />
+          <span className="slider" />
         </label>
       </div>
 
       {isAutoMode && (
-        <div style={{
-          color: '#555',
-          fontSize: '0.8rem',
-          marginTop: 10,
-          textAlign: 'center'
-        }}>
+        <div style={{ color: '#555', fontSize: '0.8rem', marginTop: 10, textAlign: 'center' }}>
           {t.autoModeDesc}
         </div>
       )}
-
     </div>
   );
 
