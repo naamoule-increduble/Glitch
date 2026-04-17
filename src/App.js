@@ -97,27 +97,41 @@ function App() {
 
   const parseBGGSearch = (text) => {
     if (!text || text.length < 30) return [];
-    // BGG sometimes returns a retry message — surface it
-    if (text.includes('<message>')) {
-      console.warn('BGG returned a message instead of results:', text);
-      return [];
-    }
+    if (text.includes('Unauthorized')) return [];
+    if (text.includes('<message>')) { console.warn('BGG message:', text); return []; }
+
     const parser = new DOMParser();
     const xml = parser.parseFromString(text, 'text/xml');
-    // Check for parse error
     if (xml.querySelector('parsererror')) {
-      console.error('XML parse error. Raw text:', text.slice(0, 200));
+      console.error('XML parse error:', text.slice(0, 200));
       return [];
     }
-    const items = Array.from(xml.querySelectorAll('item')).slice(0, 8);
-    console.log('XML items found:', items.length, '| total attr:', xml.querySelector('items')?.getAttribute('total'));
-    return items.map(item => {
-      const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
+
+    // v2 API: <item type="boardgame" id="..."><name type="primary" value="..."/></item>
+    const v2items = Array.from(xml.querySelectorAll('item[type="boardgame"], item')).slice(0, 8);
+    if (v2items.length > 0) {
+      console.log('v2 items:', v2items.length);
+      return v2items.map(item => {
+        const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
+        const yearEl = item.querySelector('yearpublished');
+        return {
+          id: item.getAttribute('id'),
+          name: nameEl?.getAttribute('value') || nameEl?.textContent?.trim() || 'Unknown',
+          year: yearEl?.getAttribute('value') || ''
+        };
+      }).filter(r => r.name !== 'Unknown');
+    }
+
+    // v1 API fallback: <boardgame objectid="..."><name primary="true">...</name></boardgame>
+    const v1items = Array.from(xml.querySelectorAll('boardgame')).slice(0, 8);
+    console.log('v1 items:', v1items.length);
+    return v1items.map(item => {
+      const nameEl = item.querySelector('name[primary="true"]') || item.querySelector('name');
       const yearEl = item.querySelector('yearpublished');
       return {
-        id: item.getAttribute('id'),
-        name: nameEl?.getAttribute('value') || 'Unknown',
-        year: yearEl?.getAttribute('value') || ''
+        id: item.getAttribute('objectid'),
+        name: nameEl?.textContent?.trim() || 'Unknown',
+        year: yearEl?.textContent?.trim() || ''
       };
     }).filter(r => r.name !== 'Unknown');
   };
