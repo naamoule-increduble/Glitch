@@ -69,7 +69,7 @@ function App() {
 
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
-  const rulebookInputRef = useRef(null);
+
   const searchDebounceRef = useRef(null);
   const dropdownRef = useRef(null);
   const queueRef = useRef([]);
@@ -110,6 +110,21 @@ function App() {
     }).filter(r => r.name !== 'Unknown');
   };
 
+  const proxyFetch = async (url) => {
+    const proxy1 = 'https://corsproxy.io/?' + encodeURIComponent(url);
+    const proxy2 = 'https://thingproxy.freeboard.io/fetch/' + url;
+    try {
+      const res = await fetch(proxy1);
+      if (!res.ok) throw new Error('corsproxy status ' + res.status);
+      return await res.text();
+    } catch (e1) {
+      console.warn('corsproxy.io failed, trying thingproxy...', e1.message);
+      const res2 = await fetch(proxy2);
+      if (!res2.ok) throw new Error('thingproxy status ' + res2.status);
+      return await res2.text();
+    }
+  };
+
   const searchBGG = useCallback(async (query) => {
     if (!query || query.trim().length < 2) {
       setSearchResults([]);
@@ -119,18 +134,15 @@ function App() {
     }
     setFetchStatus('Loading');
     setShowDropdown(true);
-    const bggUrl = `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`;
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(bggUrl)}`;
+    const url = `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame&exact=0`;
     try {
-      const res = await fetch(proxyUrl);
-      const text = await res.text();
-      console.log('BGG proxy fetch OK, length:', text.length, 'preview:', text.slice(0, 200));
+      const text = await proxyFetch(url);
       const results = parseBGGSearch(text);
-      console.log('BGG Search Results:', results);
+      console.log('Search results:', results);
       setSearchResults(results);
-      setFetchStatus('Success: ' + results.length + ' results');
+      setFetchStatus('Success: ' + results.length);
     } catch (e) {
-      console.error('BGG search failed:', e);
+      console.error('Search failed:', e);
       setSearchResults([]);
       setFetchStatus('Error: ' + e.message);
     }
@@ -139,17 +151,9 @@ function App() {
   const fetchGameMechanics = useCallback(async (gameId) => {
     if (!gameId) return;
     setIsFetchingMechanics(true);
-    const bggUrl = `https://boardgamegeek.com/xmlapi2/thing?id=${gameId}&stats=0`;
+    const url = `https://boardgamegeek.com/xmlapi2/thing?id=${gameId}&stats=0`;
     try {
-      let text;
-      try {
-        const res = await fetch(bggUrl);
-        text = await res.text();
-      } catch (corsErr) {
-        console.warn('Mechanics direct fetch failed, trying proxy...', corsErr);
-        const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(bggUrl)}`);
-        text = await proxyRes.text();
-      }
+      const text = await proxyFetch(url);
       const parser = new DOMParser();
       const xml = parser.parseFromString(text, 'text/xml');
       const mechanics = Array.from(xml.querySelectorAll('link[type="boardgamemechanic"]'))
@@ -161,11 +165,11 @@ function App() {
         .filter(Boolean)
         .slice(0, 3);
       const combined = [...mechanics, ...categories].join(', ');
-      console.log('BGG Mechanics:', combined);
+      console.log('Mechanics:', combined);
       setGameMechanics(combined);
       gameMechanicsRef.current = combined;
     } catch (e) {
-      console.error('BGG mechanics fetch completely failed:', e);
+      console.error('Mechanics fetch failed:', e);
     } finally {
       setIsFetchingMechanics(false);
     }
@@ -442,7 +446,6 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
     setImageType('box');
     setShowUnknownWarning(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    if (rulebookInputRef.current) rulebookInputRef.current.value = '';
   };
 
   const startGame = () => {
@@ -501,7 +504,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
           }}>
             {fetchStatus === 'Loading' && (
               <li style={{ padding: '15px 14px', color: '#aaa', fontSize: '1rem' }}>
-                Fetching from BGG...
+                Intercepting game database...
               </li>
             )}
             {searchResults.map(game => (
@@ -530,10 +533,12 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         )}
       </div>
 
-      {/* Debug panel — outside the relative dropdown wrapper so it never shifts dropdown position */}
-      <div style={{ color: 'yellow', fontSize: '12px', padding: '2px 0 6px' }}>
-        DEBUG: len={searchTerm.length} | results={searchResults.length} | locked={selectedGame ? selectedGame.name : 'no'} | {fetchStatus}
-      </div>
+      {/* Debug panel — only shown on error */}
+      {fetchStatus.startsWith('Error') && (
+        <div style={{ color: 'yellow', fontSize: '12px', padding: '2px 0 6px' }}>
+          DEBUG: {fetchStatus}
+        </div>
+      )}
 
       {/* Mechanics indicator */}
       {selectedGame && (
@@ -562,10 +567,7 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
         <div style={{ position: 'relative', marginTop: 15, marginBottom: 15, display: 'flex', justifyContent: 'center' }}>
           <img
             src={imageData}
-            style={{
-              width: '100%', maxHeight: '180px', objectFit: 'cover',
-              borderRadius: 8, border: `2px solid ${imageType === 'rulebook' ? '#ff9500' : '#00d4ff'}`
-            }}
+            style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: 8, border: '2px solid #00d4ff' }}
             alt="game preview"
           />
           <button
@@ -579,36 +581,28 @@ IMPORTANT: Use REAL elements from ${hasImage ? 'the game in the image' : `"${gam
           >×</button>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: '10px', marginTop: 15 }}>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              flex: 1, padding: '12px', background: 'transparent',
-              border: '1px dashed #00d4ff', borderRadius: '8px',
-              color: '#00d4ff', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.3s ease'
-            }}
-            onMouseEnter={e => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
-            onMouseLeave={e => e.target.style.background = 'transparent'}
-          >
-            {t.scanBoxPlaceholder}
-          </button>
-          <button
-            onClick={() => rulebookInputRef.current?.click()}
-            style={{
-              flex: 1, padding: '12px', background: 'transparent',
-              border: '1px dashed #ff9500', borderRadius: '8px',
-              color: '#ff9500', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.3s ease'
-            }}
-            onMouseEnter={e => e.target.style.background = 'rgba(255, 149, 0, 0.1)'}
-            onMouseLeave={e => e.target.style.background = 'transparent'}
-          >
-            {t.scanRulebookPlaceholder}
-          </button>
-        </div>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            width: '100%', marginTop: 15, padding: '14px', background: 'transparent',
+            border: '1px dashed #00d4ff', borderRadius: '8px',
+            color: '#00d4ff', fontSize: '0.95rem', cursor: 'pointer', transition: 'all 0.3s ease'
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(0, 212, 255, 0.1)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        >
+          Scan Game 📸
+        </button>
       )}
 
-      <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept="image/*" onChange={e => handleImage(e, 'box')} />
-      <input type="file" ref={rulebookInputRef} style={{ display: 'none' }} accept="image/*" onChange={e => handleImage(e, 'rulebook')} />
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept="image/*"
+        capture="environment"
+        onChange={e => handleImage(e, 'box')}
+      />
 
       {/* Vibe Selector */}
       <label style={{ marginTop: 20 }}>{t.chooseVibeLabel}</label>
