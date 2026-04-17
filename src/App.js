@@ -111,17 +111,22 @@ function App() {
   };
 
   const proxyFetch = async (url) => {
-    const proxy1 = 'https://corsproxy.io/?' + encodeURIComponent(url);
-    const proxy2 = 'https://thingproxy.freeboard.io/fetch/' + url;
+    // Primary: allorigins /get returns JSON { contents: "<xml>..." }
     try {
-      const res = await fetch(proxy1);
-      if (!res.ok) throw new Error('corsproxy status ' + res.status);
-      return await res.text();
+      const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+      if (!res.ok) throw new Error('allorigins status ' + res.status);
+      const data = await res.json();
+      if (!data.contents) throw new Error('allorigins empty contents');
+      console.log('allorigins OK, length:', data.contents.length);
+      return data.contents;
     } catch (e1) {
-      console.warn('corsproxy.io failed, trying thingproxy...', e1.message);
-      const res2 = await fetch(proxy2);
-      if (!res2.ok) throw new Error('thingproxy status ' + res2.status);
-      return await res2.text();
+      console.warn('allorigins failed, trying codetabs...', e1.message);
+      // Fallback: codetabs returns raw XML text directly
+      const res2 = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+      if (!res2.ok) throw new Error('codetabs status ' + res2.status);
+      const text = await res2.text();
+      console.log('codetabs OK, length:', text.length);
+      return text;
     }
   };
 
