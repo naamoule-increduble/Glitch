@@ -343,6 +343,7 @@ Constraints:
     if (data.error) throw new Error(data.error.message);
     const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     return JSON.parse(raw.replace(/```json|```/g, '').trim());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [API_KEY]);
 
   // ─── GAME KNOWLEDGE PIPELINE ──────────────────────────────────────────────
@@ -566,6 +567,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       isGeneratingRef.current = false;
       if (isInitial) setInitialLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [API_KEY, vibeKey, t]);
 
   // ─── HARD RESET ───────────────────────────────────────────────────────────
