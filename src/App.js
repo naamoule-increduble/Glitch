@@ -178,7 +178,9 @@ function App() {
   // All BGG requests go through our Vercel serverless function (/api/bgg)
   // because BGG blocks direct browser requests (CORS) and public proxies.
   const proxyFetch = async (url) => {
+    console.log('[GLITCH] proxyFetch →', url.slice(0, 100));
     const res = await fetch(`/api/bgg?url=${encodeURIComponent(url)}`);
+    console.log('[GLITCH] proxyFetch status:', res.status);
     if (!res.ok) throw new Error('proxy status ' + res.status);
     const text = await res.text();
     if (text.includes('Unauthorized')) throw new Error('BGG blocked');
@@ -219,6 +221,7 @@ function App() {
     if (!query || query.trim().length < 2) {
       setSearchResults([]); setShowDropdown(false); setFetchStatus('Idle'); return;
     }
+    console.log('[GLITCH] searchBGG started:', query);
     setFetchStatus('Loading');
     setShowDropdown(true);
     try {
@@ -226,9 +229,11 @@ function App() {
         `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame`
       );
       const results = parseBGGSearch(text);
+      console.log('[GLITCH] searchBGG parsed:', results.length, 'results');
       setSearchResults(results);
       setFetchStatus(results.length > 0 ? 'Ok' : 'Empty');
-    } catch {
+    } catch (e) {
+      console.warn('[GLITCH] searchBGG error:', e.message);
       setSearchResults([]);
       setFetchStatus('Error');
     }
@@ -237,6 +242,7 @@ function App() {
   // Fetches BGG mechanic/category tags — light metadata only, not rule text.
   const fetchBGGMetadata = useCallback(async (gameId) => {
     if (!gameId) return;
+    console.log('[GLITCH] fetchBGGMetadata started for gameId:', gameId);
     setIsFetchingMechanics(true);
     try {
       const text = await proxyFetch(
@@ -258,6 +264,7 @@ function App() {
   }, []);
 
   const handleSearchChange = useCallback((value) => {
+    console.log('[GLITCH] handleSearchChange:', value);
     setSearchTerm(value);
     searchTermRef.current = value;
     setSelectedGame(null);
@@ -272,6 +279,7 @@ function App() {
   }, [searchBGG]);
 
   const handleGameSelect = useCallback((game) => {
+    console.log('[GLITCH] handleGameSelect:', game.name, '| id:', game.id);
     setSelectedGame(game);
     selectedGameRef.current = game;
     setSearchTerm(game.name);
@@ -371,6 +379,8 @@ Constraints:
       return stored;
     }
 
+    console.log('[GLITCH] loadGameKnowledge — game:', game?.name, '| gameId:', gameId, '| rulebookImg:', !!rulebookImg, '| bggMechanics:', bggMechanicsStr.slice(0, 40));
+
     // B. Rulebook image = highest quality source — Gemini reads actual rule text.
     //    Box image is deliberately excluded here: it shows components, not rule text.
     if (rulebookImg) {
@@ -399,11 +409,13 @@ Constraints:
       }
     }
 
-    // C. BGG mechanics/categories = minimal knowledge, low-medium confidence.
-    //    These are crowd-sourced tags — better than nothing but not rule text.
-    if (bggMechanicsStr || name) {
+    // C. BGG minimal knowledge — only when a BGG game was actually selected.
+    //    A raw typed name alone is NOT a confirmed identity and must not reach here.
+    //    Without selectedGame there is no BGG-backed confidence — fall through to D.
+    if (game) {
       const mechanicsArr = bggMechanicsStr ? bggMechanicsStr.split(', ').filter(Boolean) : [];
       const confidence = mechanicsArr.length >= 3 ? 'medium' : 'low';
+      console.log('[GLITCH] loadGameKnowledge source: bgg_minimal | confidence:', confidence, '| mechanics count:', mechanicsArr.length);
       const knowledge = {
         ...emptyKnowledge(),
         gameId,
@@ -422,7 +434,8 @@ Constraints:
       return knowledge;
     }
 
-    // D. No knowledge at all — return empty and let caller decide
+    // D. No confirmed identity and no image — return empty and let caller block
+    console.log('[GLITCH] loadGameKnowledge source: none (no selectedGame, no image)');
     const none = { ...emptyKnowledge(), gameName: name, gameId };
     setGameKnowledge(none);
     gameKnowledgeRef.current = none;
@@ -603,6 +616,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     const hasUsableKnowledge = hasImage || knowledge.mechanics.length > 0 || knowledge.vocabulary.length > 0;
 
     if (!hasSomething) {
+      console.log('[GLITCH] startGame blocked: no game identity (no name, no image)');
       setShowWarning('none');
       setInitialLoading(false);
       return;
@@ -610,6 +624,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
 
     // Warn on low confidence but still allow generation if we have a name or image
     if (!hasUsableKnowledge && knowledge.confidence === 'low') {
+      console.log('[GLITCH] startGame blocked: low confidence, no BGG data or image');
       setShowWarning('low');
       setInitialLoading(false);
       return;
@@ -724,8 +739,10 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   };
 
   // ─── COMPUTED ─────────────────────────────────────────────────────────────
+  // Boot requires a confirmed BGG game selection OR an uploaded image.
+  // Raw typed text alone is not sufficient — it provides no verifiable game identity.
   const canStart = !initialLoading && !isLoadingKnowledge &&
-    (searchTerm.trim().length > 1 || !!boxImageData || !!rulebookImageData);
+    (!!selectedGame || !!boxImageData || !!rulebookImageData);
 
   const startLabel = isLoadingKnowledge ? t.loadingKnowledge
     : initialLoading ? t.loadingText
@@ -796,6 +813,18 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
           </ul>
         )}
       </div>
+
+      {/* BGG search status — only shown when no game is confirmed yet */}
+      {!selectedGame && fetchStatus === 'Error' && searchTerm.length > 1 && (
+        <div style={{ fontSize: '0.8rem', color: '#ff0055', marginTop: 4, marginBottom: 6 }}>
+          BGG lookup failed — check /api/bgg or network
+        </div>
+      )}
+      {!selectedGame && fetchStatus === 'Empty' && searchTerm.length > 1 && (
+        <div style={{ fontSize: '0.8rem', color: '#ffa500', marginTop: 4, marginBottom: 6 }}>
+          No matching BGG games found
+        </div>
+      )}
 
       {/* BGG metadata indicator — tags only, not rule knowledge */}
       {selectedGame && (
