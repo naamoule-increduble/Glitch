@@ -22,6 +22,7 @@ export const GAME_LIBRARY = [
     actions: ['roll dice', 'buy property', 'pay rent', 'draw Chance card', 'draw Community Chest card', 'go to Jail', 'build houses', 'mortgage property', 'trade', 'pass Go'],
     coreElements: ['board spaces', 'properties', 'railroads', 'utilities', 'Go', 'Jail', 'Free Parking', 'houses', 'hotels', 'money'],
     mutableHooks: ['rolling dice', 'landing on a property', 'paying rent', 'drawing a Chance card', 'drawing Community Chest', 'going to Jail', 'passing Go', 'building houses or hotels'],
+    earlyGameHooks: ['first roll of the game', 'buying the first property', 'first time passing Go', 'first Chance or Community Chest draw'],
     ruleSummary: 'Players roll dice to move around the board, buy and develop properties, collect rent, and try to bankrupt everyone else.',
   },
   {
@@ -35,6 +36,7 @@ export const GAME_LIBRARY = [
     actions: ['roll dice', 'collect resources', 'trade with players', 'trade at harbor', 'build road', 'build settlement', 'upgrade to city', 'buy development card', 'play knight', 'move robber'],
     coreElements: ['hex board', 'resource tiles', 'number tokens', 'settlements', 'cities', 'roads', 'robber', 'development cards', 'victory points'],
     mutableHooks: ['dice roll and resource collection', 'robber placement', 'trading negotiation', 'building a settlement or city', 'playing a knight', 'claiming longest road or largest army'],
+    earlyGameHooks: ['placing starting settlements', 'choosing starting road positions', 'first resource collection phase', 'first trading offer of the game'],
     ruleSummary: 'Players collect resources based on dice rolls and board placement, trade with each other, and race to build settlements and cities to reach 10 victory points.',
   },
   {
@@ -48,6 +50,7 @@ export const GAME_LIBRARY = [
     actions: ['play a card', 'draw a card', 'call UNO', 'challenge Wild Draw Four', 'match color', 'match number', 'change color', 'skip a player', 'reverse direction'],
     coreElements: ['numbered cards', 'action cards', 'Wild cards', 'draw pile', 'discard pile', 'four colors'],
     mutableHooks: ['playing Draw Two', 'playing Skip', 'playing Reverse', 'playing Wild Draw Four', 'calling UNO', 'being forced to draw', 'color changes'],
+    earlyGameHooks: ['dealing the initial hands', 'first card played to start the discard pile', 'first player to take their first turn'],
     ruleSummary: 'Players race to empty their hand by matching cards by color or number, using action cards to disrupt opponents, and must call UNO when down to one card.',
   },
   {
@@ -113,6 +116,7 @@ export const GAME_LIBRARY = [
     actions: ['draw train cards', 'claim a route', 'draw destination tickets', 'place trains', 'complete a destination', 'block a route'],
     coreElements: ['map board', 'train car pieces', 'colored train cards', 'destination tickets', 'routes between cities'],
     mutableHooks: ['claiming a route', 'drawing destination tickets', 'being blocked by another player', 'completing a destination', 'racing for longest train'],
+    earlyGameHooks: ['drawing initial destination tickets', 'choosing which tickets to keep', 'placing first trains on the board', 'first route claimed'],
     ruleSummary: 'Players collect colored cards to claim train routes across a map, completing destination tickets for points while blocking rivals.',
   },
   {
@@ -126,6 +130,7 @@ export const GAME_LIBRARY = [
     actions: ['draw and place a tile', 'place a meeple', 'score a completed city', 'score a completed road', 'score a cloister', 'retrieve a meeple'],
     coreElements: ['land tiles', 'meeples', 'cities', 'roads', 'farms', 'cloisters', 'scoring track'],
     mutableHooks: ['placing a tile', 'placing a meeple', 'completing a city', 'completing a road', 'completing a cloister', 'scoring at game end'],
+    earlyGameHooks: ['placing the very first tile', 'placing the first meeple', 'first tile draw of the game'],
     ruleSummary: 'Players build a landscape tile by tile and place meeples on features like cities, roads, and farms to score points when features complete.',
   },
   {
@@ -191,6 +196,7 @@ export const GAME_LIBRARY = [
     actions: ['move to a city', 'build research station', 'treat disease', 'share knowledge', 'discover a cure', 'charter a flight', 'draw player cards', 'infect cities'],
     coreElements: ['world map board', 'disease cubes', 'infection cards', 'player cards', 'research stations', 'four diseases', 'outbreak marker', 'infection rate track'],
     mutableHooks: ['city infection', 'outbreak chain', 'drawing an epidemic card', 'discovering a cure', 'eradicating a disease', 'running out of cubes or cards'],
+    earlyGameHooks: ['assigning player roles', 'initial city seeding with disease cubes', 'first player action phase', 'building the first research station'],
     ruleSummary: 'Players cooperate as specialists to treat and cure four diseases spreading across the globe before outbreaks spiral out of control.',
   },
   {
@@ -295,6 +301,7 @@ export const GAME_LIBRARY = [
     actions: ['move a piece', 'capture a piece', 'put king in check', 'castle', 'promote a pawn', 'en passant', 'declare checkmate'],
     coreElements: ['8x8 board', 'pawns', 'rooks', 'knights', 'bishops', 'queens', 'kings', 'two sides'],
     mutableHooks: ['capturing a piece', 'putting king in check', 'castling', 'pawn promotion', 'en passant capture', 'delivering checkmate'],
+    earlyGameHooks: ['deciding who plays white', 'opening pawn moves', 'first piece developed off the back rank', 'first capture of the game'],
     ruleSummary: 'Two players maneuver pieces with unique movement rules, trying to trap the opponent\'s king in an inescapable check — checkmate.',
   },
   {
@@ -347,6 +354,7 @@ export const GAME_LIBRARY = [
     actions: ['place armies', 'attack a territory', 'roll dice', 'defend', 'capture a territory', 'earn territory cards', 'trade cards for armies', 'fortify position'],
     coreElements: ['world map', 'territories', 'continents', 'army pieces', 'dice', 'territory cards', 'mission cards'],
     mutableHooks: ['attacking a territory', 'dice roll for combat', 'capturing a territory card', 'trading in territory cards', 'defending a continent', 'eliminating a player'],
+    earlyGameHooks: ['placing starting armies', 'claiming starting territories', 'first attack of the game', 'first reinforcement phase'],
     ruleSummary: 'Players place and move armies across a world map, using dice rolls to attack and conquer territories, aiming for global domination.',
   },
   {

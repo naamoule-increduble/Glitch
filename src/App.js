@@ -31,7 +31,7 @@ const translations = {
     vibes: {
       chaotic: "Chaos 🔥",
       drinking: "Drinks 🍻",
-      funny: "Silly 😂"
+      funny: "Family Party 🎉"
     },
     errors: {
       networkError: "Network hiccup",
@@ -66,20 +66,55 @@ const getStoredGameKnowledge = (gameKey) => {
 };
 
 const saveStoredGameKnowledge = (gameKey, knowledge) => {
-  try { localStorage.setItem(`glitch_gk_${gameKey}`, JSON.stringify(knowledge)); }
-  catch { /* localStorage unavailable — non-critical */ }
+  // Browser-local memory only — not shared across devices or users.
+  // Saves rulebook-extracted knowledge so the user doesn't need to re-upload next session.
+  try {
+    const data = JSON.stringify(knowledge);
+    localStorage.setItem(`glitch_gk_${gameKey}`, data);
+    // Also index by normalized game name so fuzzy lookup can find it regardless of
+    // how the game was identified (library id vs BGG id vs free-typed name).
+    if (knowledge.gameName) {
+      const nameKey = `name_${knowledge.gameName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      if (`glitch_gk_${nameKey}` !== `glitch_gk_${gameKey}`) {
+        localStorage.setItem(`glitch_gk_${nameKey}`, data);
+      }
+    }
+  } catch { /* localStorage unavailable — non-critical */ }
+};
+
+// Scans all stored game knowledge entries for a name match when the direct key fails.
+// Handles case differences, spacing, and minor naming variations across sessions.
+// Browser-local only — this does not search any external database.
+const findStoredKnowledgeByName = (searchName) => {
+  try {
+    const q = (searchName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (q.length < 2) return null;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith('glitch_gk_')) continue;
+      try {
+        const data = JSON.parse(localStorage.getItem(key));
+        if (!data?.gameName) continue;
+        const stored = data.gameName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (stored === q || stored.startsWith(q) || q.startsWith(stored)) return data;
+      } catch { continue; }
+    }
+    return null;
+  } catch { return null; }
 };
 
 const emptyKnowledge = () => ({
   gameId: null,
   gameName: '',
-  sourceType: 'manual',   // 'seed' | 'localStorage' | 'rulebook_image' | 'bgg_minimal' | 'manual'
-  confidence: 'low',       // 'high' | 'medium' | 'low'
+  sourceType: 'manual',    // 'seed' | 'rulebook_image' | 'bgg_minimal' | 'manual'
+  confidence: 'low',        // 'high' | 'medium' | 'low'
+  sourceLanguage: '',       // language the knowledge was extracted from (e.g. 'Hebrew')
   mechanics: [],
-  vocabulary: [],          // game-specific nouns for authentic GLITCH rules
-  actions: [],             // what players do — triggers for GLITCH overlays
-  coreElements: [],        // board spaces, card types, pieces, resources
-  mutableHooks: [],        // concrete moments safe to twist for one-round humor
+  vocabulary: [],           // game-specific nouns for authentic GLITCH rules
+  actions: [],              // what players do — triggers for GLITCH overlays
+  coreElements: [],         // board spaces, card types, pieces, resources
+  mutableHooks: [],         // concrete moments safe to twist for one-round humor
+  earlyGameHooks: [],       // subset of hooks relevant at game start (before mid/late development)
   ruleSummary: '',
   rawRuleText: '',
 });
@@ -369,10 +404,12 @@ Game name hint: "${gameName || 'unknown'}"
 Return ONLY this JSON (no explanation, no markdown):
 {
   "gameName": "exact game name from rulebook",
+  "sourceLanguage": "language the rulebook is written in, e.g. 'English', 'Hebrew', 'Spanish'",
   "vocabulary": ["game-specific nouns visible in the text, e.g. 'sheriff', 'outlaw', 'property', 'district'"],
   "actions": ["things players can do, e.g. 'roll dice', 'draw card', 'place worker'"],
   "coreElements": ["board spaces, card types, pieces, resources, zones"],
   "mutableHooks": ["specific game moments that could be temporarily twisted for humor without breaking the game"],
+  "earlyGameHooks": ["hooks relevant at game START only — setup, first turns, dealing cards, choosing roles"],
   "ruleSummary": "1-2 sentence plain English summary of how the game works",
   "rawRuleText": "key rule phrases or sentences readable directly from the image",
   "confidence": "high"
@@ -382,6 +419,7 @@ Constraints:
 - Use only what is actually visible in the image
 - Be specific — use this game's own terminology
 - mutableHooks must be concrete game moments, not generic actions
+- earlyGameHooks must be a subset of mutableHooks that only apply in the first few turns
 - Return valid JSON only`;
 
     const res = await fetch(
@@ -427,6 +465,19 @@ Constraints:
     setIsLoadingKnowledge(true);
     setShowWarning(null);
 
+    // B-early. localStorage — check FIRST even for library games.
+    //    Rulebook upload always overrides library seed knowledge.
+    //    Also try fuzzy name scan if the direct key misses.
+    const stored = getStoredGameKnowledge(gameKey)
+      || findStoredKnowledgeByName(name);
+    if (stored && (stored.confidence === 'high' || stored.confidence === 'medium')) {
+      console.log('[GLITCH] loadGameKnowledge source: localStorage cache —', gameKey);
+      setGameKnowledge(stored);
+      gameKnowledgeRef.current = stored;
+      setIsLoadingKnowledge(false);
+      return stored;
+    }
+
     // A. Internal library — the primary game knowledge source.
     //    No network access required. Works offline. Returns immediately.
     if (game?.source === 'library' && game.libraryEntry) {
@@ -438,28 +489,18 @@ Constraints:
         gameName: entry.canonicalName,
         sourceType: 'seed',
         confidence: entry.confidence,
-        mechanics: entry.mechanics,
-        vocabulary: entry.vocabulary,
-        actions: entry.actions,
-        coreElements: entry.coreElements,
-        mutableHooks: entry.mutableHooks,
+        mechanics: entry.mechanics || [],
+        vocabulary: entry.vocabulary || [],
+        actions: entry.actions || [],
+        coreElements: entry.coreElements || [],
+        mutableHooks: entry.mutableHooks || [],
+        earlyGameHooks: entry.earlyGameHooks || [],
         ruleSummary: entry.ruleSummary,
       };
       setGameKnowledge(knowledge);
       gameKnowledgeRef.current = knowledge;
       setIsLoadingKnowledge(false);
       return knowledge;
-    }
-
-    // B. localStorage — previously extracted rulebook knowledge for this game.
-    //    Saves users from re-uploading on repeat plays.
-    const stored = getStoredGameKnowledge(gameKey);
-    if (stored && (stored.confidence === 'high' || stored.confidence === 'medium')) {
-      console.log('[GLITCH] loadGameKnowledge source: localStorage cache —', gameKey);
-      setGameKnowledge(stored);
-      gameKnowledgeRef.current = stored;
-      setIsLoadingKnowledge(false);
-      return stored;
     }
 
     console.log('[GLITCH] loadGameKnowledge — no library/cache match | rulebookImg:', !!rulebookImg);
@@ -476,10 +517,12 @@ Constraints:
           gameName: extracted.gameName || name,
           sourceType: 'rulebook_image',
           confidence: extracted.confidence || 'high',
+          sourceLanguage: extracted.sourceLanguage || '',
           vocabulary: extracted.vocabulary || [],
           actions: extracted.actions || [],
           coreElements: extracted.coreElements || [],
           mutableHooks: extracted.mutableHooks || [],
+          earlyGameHooks: extracted.earlyGameHooks || [],
           ruleSummary: extracted.ruleSummary || '',
           rawRuleText: extracted.rawRuleText || '',
         };
@@ -536,11 +579,19 @@ Constraints:
   // phase-aware — rules must attach to a real moment, not invent new ones.
   // Language instruction ensures rules stay in the game's own language (e.g. Hebrew).
   const buildGlitchPrompt = (knowledge, vibeKey, history, batchSize = 10) => {
-    const { gameName, vocabulary, actions, coreElements, mutableHooks, ruleSummary, mechanics, confidence } = knowledge;
+    const { gameName, vocabulary, actions, coreElements, mutableHooks, earlyGameHooks, ruleSummary, mechanics, confidence, sourceLanguage } = knowledge;
     const hasRichKnowledge = vocabulary.length > 0 || mutableHooks.length > 0;
+
+    // Use earlyGameHooks for the first few turns — these are setup/start-of-game moments.
+    // After turn 5 the full mutableHooks list unlocks mid/late-game triggers.
+    const isEarlyGame = history.length < 5;
+    const activeHooks = isEarlyGame && earlyGameHooks?.length > 0
+      ? earlyGameHooks
+      : mutableHooks;
 
     // Each vibe has: a tone description, an example style, and an anti-pattern to avoid.
     // Chaos is deliberately amplified — mild/safe twists are called out explicitly.
+    // Family Party replaces Silly — still G-rated but more energetic and physical.
     const VIBES = {
       chaotic: {
         tone: 'TOTAL CHAOS. Invert, reverse, or steal. The twist should feel wrong, surprising, or absurd.',
@@ -553,9 +604,9 @@ Constraints:
         avoid: 'Do NOT just say "take a drink." Specify the exact trigger and who drinks.',
       },
       funny: {
-        tone: 'Silly and playful. Harmless absurdity — weird requirements, physical comedy, or unexpected role reversals.',
-        example: '"Roll a double? Stand up and spin once before moving." | "Lose a piece? Name it before it goes."',
-        avoid: 'Do NOT write anything mean-spirited or harmful. Keep it lighthearted.',
+        tone: 'Family party energy — safe for all ages but genuinely fun. Physical comedy, silly voices, unexpected social challenges.',
+        example: '"Roll doubles? Do your best robot impression before moving." | "Lose a piece? Give it a dramatic name and eulogy." | "Take someone\'s card? Trade seats with them first."',
+        avoid: 'Do NOT write boring or generic twists. Every rule should make the table laugh or groan.',
       },
     };
 
@@ -564,8 +615,11 @@ Constraints:
     // mutableHooks formatted as an explicit trigger list.
     // The instruction "MUST attach to one of these" prevents the model from
     // inventing triggers that happen at the wrong phase of the game.
-    const triggerBlock = mutableHooks.length > 0
-      ? `TRIGGER MOMENTS — rules MUST attach to one of these (do not invent new moments):\n${mutableHooks.map(h => `  • ${h}`).join('\n')}`
+    const hookLabel = isEarlyGame && earlyGameHooks?.length > 0
+      ? 'EARLY GAME TRIGGER MOMENTS (game is just starting)'
+      : 'TRIGGER MOMENTS';
+    const triggerBlock = activeHooks.length > 0
+      ? `${hookLabel} — rules MUST attach to one of these (do not invent new moments):\n${activeHooks.map(h => `  • ${h}`).join('\n')}`
       : '';
 
     const gameContext = hasRichKnowledge
@@ -587,6 +641,12 @@ KNOWN MECHANICS: ${mechanics.join(', ')}`;
       ? '\nNOTE: Limited knowledge — stay grounded in the game name and known mechanics only.'
       : '';
 
+    // Output language: use the UI language (always match the player's session language).
+    // sourceLanguage is the rulebook's language — used for knowledge extraction only, not output.
+    const langNote = sourceLanguage && sourceLanguage.toLowerCase() !== 'english'
+      ? `\nWRITE IN: English (the rulebook was in ${sourceLanguage}, but players need English output)`
+      : '';
+
     return `You are GLITCH. You write temporary one-round rule overlays for board games.
 
 ${gameContext}
@@ -598,11 +658,10 @@ AVOID: ${vibe.avoid}
 RULES FOR WRITING RULES:
 1. Format: [trigger] + [twist]. Max 10 words total.
 2. Trigger must be a real game moment (from the trigger list above if provided)
-3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — specify who and why' : 'silly, playful, or physically absurd'}
+3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — specify who and why' : 'silly, physical, or a fun social challenge'}
 4. Use this game's own vocabulary — not generic board game words
-5. Write rules in the same language as the game vocabulary provided
-6. No emojis. No markdown. No explanations.
-7. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
+5. No emojis. No markdown. No explanations.
+6. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${langNote}${historyBlock}
 
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
@@ -638,7 +697,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
         // Box image only — use Gemini vision for visual identification.
         const prompt = `You are GLITCH — create ${batchSize} short funny temporary rule overlays for this board game.
 📸 Identify the game from the box photo and write rules using its actual game terms.
-VIBE: ${vibeKey === 'chaotic' ? 'CHAOS — invert or break normal rules' : vibeKey === 'drinking' ? 'drinking rules — specify who drinks and why' : 'silly fun — harmless and playful'}
+VIBE: ${vibeKey === 'chaotic' ? 'CHAOS — invert or break normal rules' : vibeKey === 'drinking' ? 'drinking rules — specify who drinks and why' : 'family party — physical comedy, silly social challenges, safe for all ages'}
 Format: [trigger] + [twist], max 10 words, no emojis.
 Return ONLY: ["rule 1", "rule 2", ...]`;
         requestBody = {
