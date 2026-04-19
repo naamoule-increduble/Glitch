@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
+import { findGameInLibrary } from './data/gameLibrary';
 
 // ─── LANGUAGE CONFIG ──────────────────────────────────────────────────────────
 const LANGUAGES = {
@@ -26,7 +27,7 @@ const translations = {
     scannedGame: "Scanned game",
     autoModeDesc: "System fires automatically every 45-90 seconds",
     lowConfidenceWarning: "Not enough game knowledge — upload the rulebook for sharper rules 📖",
-    noKnowledgeWarning: "Unknown game. Type the name or scan the rulebook to continue.",
+    noKnowledgeWarning: "Game not in library — scan your rulebook so GLITCH can learn this game.",
     vibes: {
       chaotic: "Chaos 🔥",
       drinking: "Drinks 🍻",
@@ -43,10 +44,17 @@ const translations = {
 // ─── GAME KNOWLEDGE HELPERS ───────────────────────────────────────────────────
 // gameKnowledge holds structured understanding of a real game.
 // It is NOT a list of GLITCH rules — those are generated separately and never saved here.
-// Sources (in order of preference): localStorage cache → rulebook image → BGG minimal.
+//
+// Priority order:
+//   1. Internal library (seed knowledge, works offline, no network needed)
+//   2. localStorage (user's previously extracted rulebook knowledge)
+//   3. Rulebook image (Gemini vision extraction, saved to localStorage for reuse)
+//   4. BGG minimal metadata (supplementary, non-critical)
+//
+// The internal library is the primary path. BGG is no longer required.
 
 const normalizeGameKey = (gameName, gameId) => {
-  if (gameId) return `bgg_${gameId}`;
+  if (gameId) return `lib_${gameId}`;
   return `name_${(gameName || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
 };
 
@@ -65,14 +73,13 @@ const saveStoredGameKnowledge = (gameKey, knowledge) => {
 const emptyKnowledge = () => ({
   gameId: null,
   gameName: '',
-  sourceType: 'manual',   // 'local' | 'rulebook_image' | 'bgg_minimal' | 'manual'
+  sourceType: 'manual',   // 'seed' | 'localStorage' | 'rulebook_image' | 'bgg_minimal' | 'manual'
   confidence: 'low',       // 'high' | 'medium' | 'low'
-  mechanics: [],           // BGG tag strings — metadata only, not rule text
-  categories: [],
-  vocabulary: [],          // game-specific nouns and terms
-  actions: [],             // things players do
+  mechanics: [],
+  vocabulary: [],          // game-specific nouns for authentic GLITCH rules
+  actions: [],             // what players do — triggers for GLITCH overlays
   coreElements: [],        // board spaces, card types, pieces, resources
-  mutableHooks: [],        // specific moments safe to twist for one-round humor
+  mutableHooks: [],        // concrete moments safe to twist for one-round humor
   ruleSummary: '',
   rawRuleText: '',
 });
@@ -104,9 +111,9 @@ function App() {
   // ── Screen ──
   const [screen, setScreen] = useState('home');
 
-  // ── BGG search state ──
-  // BGG is used ONLY for game identification and light metadata (mechanic/category tags).
-  // BGG tags are NOT canonical rule text and are never used as the sole source for generation.
+  // ── Search state ──
+  // searchResults holds merged results: library entries first, then BGG results.
+  // selectedGame carries source: 'library' | 'bgg' so loadGameKnowledge knows the path.
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -146,14 +153,14 @@ function App() {
   const searchDebounceRef = useRef(null);
   const dropdownRef = useRef(null);
   const queueRef = useRef([]);
-  const isGeneratingRef = useRef(false); // guards concurrent generation calls
+  const isGeneratingRef = useRef(false);
   const gameKnowledgeRef = useRef(emptyKnowledge());
   const selectedGameRef = useRef(null);
   const searchTermRef = useRef('');
   const bggMechanicsRef = useRef('');
   const boxImageRef = useRef(null);
   const rulebookImageRef = useRef(null);
-  const historyRef = useRef([]); // tracks shown rules to avoid repeats
+  const historyRef = useRef([]);
 
   // Keep refs in sync with state
   useEffect(() => { queueRef.current = rulesQueue; }, [rulesQueue]);
@@ -175,8 +182,8 @@ function App() {
   }, []);
 
   // ─── BGG PROXY ────────────────────────────────────────────────────────────
-  // All BGG requests go through our Vercel serverless function (/api/bgg)
-  // because BGG blocks direct browser requests (CORS) and public proxies.
+  // BGG is supplementary — the app works without it. If the proxy returns 502
+  // (BGG blocked) or the network fails, local library results still appear.
   const proxyFetch = async (url) => {
     console.log('[GLITCH] proxyFetch →', url.slice(0, 100));
     const res = await fetch(`/api/bgg?url=${encodeURIComponent(url)}`);
@@ -202,44 +209,55 @@ function App() {
         return {
           id: item.getAttribute('id'),
           name: nameEl?.getAttribute('value') || nameEl?.textContent?.trim() || 'Unknown',
-          year: yearEl?.getAttribute('value') || ''
+          year: yearEl?.getAttribute('value') || '',
+          source: 'bgg',
         };
       }).filter(r => r.name !== 'Unknown');
     }
-    // v1 API fallback (BGG sometimes routes through older endpoint)
     return Array.from(xml.querySelectorAll('boardgame')).slice(0, 8).map(item => {
       const nameEl = item.querySelector('name[primary="true"]') || item.querySelector('name');
       return {
         id: item.getAttribute('objectid'),
         name: nameEl?.textContent?.trim() || 'Unknown',
-        year: item.querySelector('yearpublished')?.textContent?.trim() || ''
+        year: item.querySelector('yearpublished')?.textContent?.trim() || '',
+        source: 'bgg',
       };
     }).filter(r => r.name !== 'Unknown');
   };
 
-  const searchBGG = useCallback(async (query) => {
-    if (!query || query.trim().length < 2) {
-      setSearchResults([]); setShowDropdown(false); setFetchStatus('Idle'); return;
-    }
+  // searchBGG runs after the local library search completes.
+  // It supplements local results — if BGG fails, local library results remain visible.
+  // localResults are passed in so BGG results can be deduped and appended below.
+  const searchBGG = useCallback(async (query, localResults = []) => {
+    if (!query || query.trim().length < 2) return;
     console.log('[GLITCH] searchBGG started:', query);
-    setFetchStatus('Loading');
-    setShowDropdown(true);
     try {
       const text = await proxyFetch(
         `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame`
       );
-      const results = parseBGGSearch(text);
-      console.log('[GLITCH] searchBGG parsed:', results.length, 'results');
-      setSearchResults(results);
-      setFetchStatus(results.length > 0 ? 'Ok' : 'Empty');
+      const bggResults = parseBGGSearch(text);
+      console.log('[GLITCH] searchBGG parsed:', bggResults.length, 'results');
+
+      // Dedup: hide BGG results whose names are already in the local library list
+      const localNames = new Set(localResults.map(r => r.name.toLowerCase()));
+      const filteredBgg = bggResults.filter(r => !localNames.has(r.name.toLowerCase()));
+      const merged = [...localResults, ...filteredBgg];
+
+      setSearchResults(merged);
+      setFetchStatus(merged.length > 0 ? 'Ok' : 'Empty');
     } catch (e) {
-      console.warn('[GLITCH] searchBGG error:', e.message);
-      setSearchResults([]);
-      setFetchStatus('Error');
+      console.warn('[GLITCH] searchBGG error (non-critical):', e.message);
+      // BGG failed — keep showing local results, don't show an error if we have them
+      if (localResults.length > 0) {
+        setSearchResults(localResults);
+        setFetchStatus('Ok');
+      } else {
+        setFetchStatus('Error');
+      }
     }
   }, []);
 
-  // Fetches BGG mechanic/category tags — light metadata only, not rule text.
+  // Fetches BGG mechanic/category tags for BGG-selected games only.
   const fetchBGGMetadata = useCallback(async (gameId) => {
     if (!gameId) return;
     console.log('[GLITCH] fetchBGGMetadata started for gameId:', gameId);
@@ -257,7 +275,7 @@ function App() {
       setBggMechanics(combined);
       bggMechanicsRef.current = combined;
     } catch (e) {
-      console.warn('BGG metadata unavailable (non-critical):', e.message);
+      console.warn('[GLITCH] BGG metadata unavailable (non-critical):', e.message);
     } finally {
       setIsFetchingMechanics(false);
     }
@@ -274,19 +292,46 @@ function App() {
     setShowWarning(null);
     setGameKnowledge(emptyKnowledge());
     gameKnowledgeRef.current = emptyKnowledge();
+
+    if (!value || value.trim().length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      setFetchStatus('Idle');
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      return;
+    }
+
+    // Search the internal library immediately — synchronous, no network needed.
+    // These results appear instantly and are the primary suggestion source.
+    const libraryMatches = findGameInLibrary(value).map(entry => ({
+      id: entry.id,
+      name: entry.canonicalName,
+      year: '',
+      source: 'library',
+      libraryEntry: entry,
+    }));
+
+    setSearchResults(libraryMatches);
+    setShowDropdown(true);
+    // Show Loading only if library has no matches (BGG may fill the gap)
+    setFetchStatus(libraryMatches.length > 0 ? 'Ok' : 'Loading');
+
+    // BGG fires after debounce as a supplementary source.
+    // If BGG is blocked or slow, the library results are already visible.
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => searchBGG(value), 500);
+    searchDebounceRef.current = setTimeout(() => searchBGG(value, libraryMatches), 500);
   }, [searchBGG]);
 
   const handleGameSelect = useCallback((game) => {
-    console.log('[GLITCH] handleGameSelect:', game.name, '| id:', game.id);
+    console.log('[GLITCH] handleGameSelect:', game.name, '| source:', game.source, '| id:', game.id);
     setSelectedGame(game);
     selectedGameRef.current = game;
     setSearchTerm(game.name);
     searchTermRef.current = game.name;
     setShowDropdown(false);
     setShowWarning(null);
-    fetchBGGMetadata(game.id);
+    // Library games carry full knowledge already — no BGG metadata fetch needed
+    if (game.source === 'bgg') fetchBGGMetadata(game.id);
   }, [fetchBGGMetadata]);
 
   // ─── GEMINI MODEL SELECTION ───────────────────────────────────────────────
@@ -303,9 +348,9 @@ function App() {
 
   // ─── RULEBOOK KNOWLEDGE EXTRACTION ───────────────────────────────────────
   // Uses Gemini vision to read an actual rulebook image and extract structured knowledge.
-  // This is the HIGH-QUALITY path — produces vocabulary, actions, mutableHooks, etc.
-  // The result is stored in localStorage and reused on future sessions.
-  // This is real game understanding, NOT a list of GLITCH rules.
+  // This is the growth path for games not in the internal library.
+  // The result is saved to localStorage so the user doesn't need to upload again.
+  // This produces real game understanding — NOT a list of GLITCH rules.
   const extractKnowledgeFromRulebookImage = useCallback(async (imageData, gameName) => {
     const model = await getBestModel();
     const prompt = `You are a game analyst reading a photo of a board game rulebook or rules sheet.
@@ -355,9 +400,16 @@ Constraints:
   }, [API_KEY]);
 
   // ─── GAME KNOWLEDGE PIPELINE ──────────────────────────────────────────────
-  // Builds structured knowledge about the real game BEFORE any GLITCH rule generation.
-  // Priority order: localStorage cache → rulebook image → BGG minimal → block.
-  // Generated GLITCH rules are NEVER written here — only real game knowledge is stored.
+  // Builds structured game knowledge before GLITCH rule generation.
+  //
+  // Priority order:
+  //   A. Internal library   — instant, no network, primary path
+  //   B. localStorage cache — previously extracted rulebook knowledge
+  //   C. Rulebook image     — Gemini vision extraction, saved for future reuse
+  //   D. BGG minimal        — secondary, only if a BGG game was selected
+  //   E. Nothing            — caller shows warning, asks for rulebook upload
+  //
+  // Generated GLITCH rules are NEVER written here.
   const loadGameKnowledge = useCallback(async () => {
     const game = selectedGameRef.current;
     const name = game?.name || searchTermRef.current?.trim() || '';
@@ -369,20 +421,46 @@ Constraints:
     setIsLoadingKnowledge(true);
     setShowWarning(null);
 
-    // A. Check localStorage for cached high/medium confidence knowledge
+    // A. Internal library — the primary game knowledge source.
+    //    No network access required. Works offline. Returns immediately.
+    if (game?.source === 'library' && game.libraryEntry) {
+      const entry = game.libraryEntry;
+      console.log('[GLITCH] loadGameKnowledge source: internal library —', entry.canonicalName);
+      const knowledge = {
+        ...emptyKnowledge(),
+        gameId: entry.id,
+        gameName: entry.canonicalName,
+        sourceType: 'seed',
+        confidence: entry.confidence,
+        mechanics: entry.mechanics,
+        vocabulary: entry.vocabulary,
+        actions: entry.actions,
+        coreElements: entry.coreElements,
+        mutableHooks: entry.mutableHooks,
+        ruleSummary: entry.ruleSummary,
+      };
+      setGameKnowledge(knowledge);
+      gameKnowledgeRef.current = knowledge;
+      setIsLoadingKnowledge(false);
+      return knowledge;
+    }
+
+    // B. localStorage — previously extracted rulebook knowledge for this game.
+    //    Saves users from re-uploading on repeat plays.
     const stored = getStoredGameKnowledge(gameKey);
     if (stored && (stored.confidence === 'high' || stored.confidence === 'medium')) {
-      console.log('Game knowledge loaded from cache:', gameKey);
+      console.log('[GLITCH] loadGameKnowledge source: localStorage cache —', gameKey);
       setGameKnowledge(stored);
       gameKnowledgeRef.current = stored;
       setIsLoadingKnowledge(false);
       return stored;
     }
 
-    console.log('[GLITCH] loadGameKnowledge — game:', game?.name, '| gameId:', gameId, '| rulebookImg:', !!rulebookImg, '| bggMechanics:', bggMechanicsStr.slice(0, 40));
+    console.log('[GLITCH] loadGameKnowledge — no library/cache match | rulebookImg:', !!rulebookImg);
 
-    // B. Rulebook image = highest quality source — Gemini reads actual rule text.
-    //    Box image is deliberately excluded here: it shows components, not rule text.
+    // C. Rulebook image — the growth path for games not in the internal library.
+    //    Gemini reads the actual rule text. Knowledge is saved to localStorage
+    //    so the user only needs to upload once per game.
     if (rulebookImg) {
       try {
         const extracted = await extractKnowledgeFromRulebookImage(rulebookImg, name);
@@ -405,17 +483,17 @@ Constraints:
         setIsLoadingKnowledge(false);
         return knowledge;
       } catch (e) {
-        console.warn('Rulebook extraction failed, falling through:', e.message);
+        console.warn('[GLITCH] Rulebook extraction failed, falling through:', e.message);
       }
     }
 
-    // C. BGG minimal knowledge — only when a BGG game was actually selected.
-    //    A raw typed name alone is NOT a confirmed identity and must not reach here.
-    //    Without selectedGame there is no BGG-backed confidence — fall through to D.
-    if (game) {
+    // D. BGG minimal — secondary path, only when a BGG result was confirmed.
+    //    Crowd-sourced mechanic tags are better than nothing but not rule text.
+    //    The app works without BGG — this is never the critical path.
+    if (game?.source === 'bgg') {
       const mechanicsArr = bggMechanicsStr ? bggMechanicsStr.split(', ').filter(Boolean) : [];
       const confidence = mechanicsArr.length >= 3 ? 'medium' : 'low';
-      console.log('[GLITCH] loadGameKnowledge source: bgg_minimal | confidence:', confidence, '| mechanics count:', mechanicsArr.length);
+      console.log('[GLITCH] loadGameKnowledge source: bgg_minimal | confidence:', confidence, '| mechanics:', mechanicsArr.length);
       const knowledge = {
         ...emptyKnowledge(),
         gameId,
@@ -434,8 +512,8 @@ Constraints:
       return knowledge;
     }
 
-    // D. No confirmed identity and no image — return empty and let caller block
-    console.log('[GLITCH] loadGameKnowledge source: none (no selectedGame, no image)');
+    // E. No usable knowledge — caller should show the rulebook upload prompt
+    console.log('[GLITCH] loadGameKnowledge source: none — no library match, no image, no BGG');
     const none = { ...emptyKnowledge(), gameName: name, gameId };
     setGameKnowledge(none);
     gameKnowledgeRef.current = none;
@@ -445,8 +523,8 @@ Constraints:
 
   // ─── GLITCH RULE GENERATION ───────────────────────────────────────────────
   // Builds the generation prompt using real gameKnowledge fields.
-  // GLITCH rules are temporary one-round overlays — never stored as canonical game knowledge.
-  // The prompt uses game-specific vocabulary so rules sound like they belong to the game.
+  // GLITCH rules are temporary one-round overlays — never stored as game knowledge.
+  // The prompt uses the game's own vocabulary so rules sound like they belong there.
   const buildGlitchPrompt = (knowledge, vibeKey, history) => {
     const { gameName, vocabulary, actions, coreElements, mutableHooks, ruleSummary, mechanics, confidence } = knowledge;
     const hasRichKnowledge = vocabulary.length > 0 || coreElements.length > 0;
@@ -500,9 +578,9 @@ ${gameContext}
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
 
-  // generateGlitchRulesBatch: the GLITCH rule generator.
-  // Renamed from fetchRulesBatch for clarity — this generates rules, it does not "fetch" them.
-  // Input: real gameKnowledge (from loadGameKnowledge). Output: session-only rule strings.
+  // generateGlitchRulesBatch: produces session-only GLITCH rules from game knowledge.
+  // Input: real gameKnowledge from loadGameKnowledge.
+  // Output: temporary rule strings — never saved as canonical knowledge.
   const generateGlitchRulesBatch = useCallback(async (isInitial = false, knowledgeOverride = null) => {
     if (isGeneratingRef.current) return;
     isGeneratingRef.current = true;
@@ -518,8 +596,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       let requestBody;
 
       if (boxImg && !rulebookImg) {
-        // Box image only — use Gemini vision for weak visual identification.
-        // No rulebook text means we can't do rich knowledge extraction here.
+        // Box image only — use Gemini vision for visual identification.
         const prompt = `You are GLITCH — create 10 short funny temporary rule overlays for this board game.
 📸 Photo of a game box: identify the game and create rules using its actual elements.
 🎯 Vibe: ${t.vibes[vibeKey]} — ${vibeKey === 'chaotic' ? 'chaos' : vibeKey === 'drinking' ? 'drinking rules' : 'silly fun'}
@@ -533,13 +610,12 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
           generationConfig: { responseMimeType: 'application/json' }
         };
       } else {
-        // Knowledge-driven generation — uses real game structure, not model memory.
+        // Knowledge-driven generation — uses real game structure from loadGameKnowledge.
         const prompt = buildGlitchPrompt(knowledge, vibeKey, history);
         requestBody = {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { responseMimeType: 'application/json' }
         };
-        // Attach rulebook image on first batch for richer context
         if (rulebookImg && isInitial) {
           requestBody.contents[0].parts.push(
             { inlineData: { mimeType: 'image/jpeg', data: rulebookImg.split(',')[1] } }
@@ -569,7 +645,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       if (isInitial) setScreen('game');
 
     } catch (error) {
-      console.error('GLITCH generation error:', error);
+      console.error('[GLITCH] generation error:', error);
       if (isInitial) {
         const fallback = [t.errors.networkError, t.errors.checkConnection, t.errors.tryAgain];
         setRulesQueue(fallback);
@@ -601,37 +677,41 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   const exitGame = () => { hardReset(); setScreen('home'); };
 
   // ─── START GAME FLOW ──────────────────────────────────────────────────────
-  // New flow: hardReset → loadGameKnowledge → confidence check → generateGlitchRulesBatch
-  // The app must understand the game before it can twist its rules.
+  // Flow: hardReset → loadGameKnowledge → confidence check → generateGlitchRulesBatch
   const startGame = async () => {
     hardReset();
     setInitialLoading(true);
     setShowWarning(null);
 
     const knowledge = await loadGameKnowledge();
-
-    // Reject if we have absolutely no usable knowledge and no images
     const hasImage = !!(boxImageRef.current || rulebookImageRef.current);
-    const hasSomething = knowledge.gameName || hasImage;
-    const hasUsableKnowledge = hasImage || knowledge.mechanics.length > 0 || knowledge.vocabulary.length > 0;
+    const hasUsableKnowledge = knowledge.vocabulary.length > 0
+      || knowledge.mechanics.length > 0
+      || hasImage;
 
-    if (!hasSomething) {
-      console.log('[GLITCH] startGame blocked: no game identity (no name, no image)');
+    // Library and rulebook paths always produce high confidence — proceed directly
+    if (knowledge.confidence === 'high' || knowledge.confidence === 'medium') {
+      await generateGlitchRulesBatch(true, knowledge);
+      return;
+    }
+
+    // Box image bypasses knowledge check — vision identifies the game directly
+    if (hasImage) {
+      await generateGlitchRulesBatch(true, knowledge);
+      return;
+    }
+
+    // Unknown game with no supporting knowledge — ask for rulebook upload
+    if (!hasUsableKnowledge) {
+      console.log('[GLITCH] startGame blocked: no usable knowledge, no image');
       setShowWarning('none');
       setInitialLoading(false);
       return;
     }
 
-    // Warn on low confidence but still allow generation if we have a name or image
-    if (!hasUsableKnowledge && knowledge.confidence === 'low') {
-      console.log('[GLITCH] startGame blocked: low confidence, no BGG data or image');
-      setShowWarning('low');
-      setInitialLoading(false);
-      return;
-    }
-
-    if (knowledge.confidence === 'low') setShowWarning('low');
-
+    // Low confidence fallback (BGG with few mechanics)
+    console.log('[GLITCH] startGame: low confidence — showing warning but proceeding');
+    setShowWarning('low');
     await generateGlitchRulesBatch(true, knowledge);
   };
 
@@ -703,7 +783,6 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     reader.onloadend = () => {
       setBoxImageData(reader.result);
       boxImageRef.current = reader.result;
-      // Box image provides visual ID only — clear any typed search
       setSearchTerm(''); searchTermRef.current = '';
       setSelectedGame(null); selectedGameRef.current = null;
       setBggMechanics(''); bggMechanicsRef.current = '';
@@ -720,8 +799,8 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     reader.onloadend = () => {
       setRulebookImageData(reader.result);
       rulebookImageRef.current = reader.result;
-      // Rulebook supplements the current game — don't clear the search term
-      setGameKnowledge(emptyKnowledge()); // clear cached knowledge so pipeline re-extracts
+      // Clear cached knowledge so the pipeline re-extracts from the new image
+      setGameKnowledge(emptyKnowledge());
       gameKnowledgeRef.current = emptyKnowledge();
       setShowWarning(null);
     };
@@ -739,8 +818,8 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   };
 
   // ─── COMPUTED ─────────────────────────────────────────────────────────────
-  // Boot requires a confirmed BGG game selection OR an uploaded image.
-  // Raw typed text alone is not sufficient — it provides no verifiable game identity.
+  // Boot is allowed for: confirmed game (library or BGG) OR any uploaded image.
+  // A library selection is the fastest path — no network, no uploads needed.
   const canStart = !initialLoading && !isLoadingKnowledge &&
     (!!selectedGame || !!boxImageData || !!rulebookImageData);
 
@@ -755,7 +834,6 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
 
       <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
 
-      {/* Game search — BGG used for identification only, not rule knowledge */}
       <div ref={dropdownRef} style={{ position: 'relative', margin: '10px 0' }}>
         <div style={{ position: 'relative' }}>
           <input
@@ -789,14 +867,15 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
             borderRadius: '0 0 8px 8px', zIndex: 9999, maxHeight: 250,
             overflowY: 'auto', listStyle: 'none', padding: 0, margin: 0
           }}>
-            {fetchStatus === 'Loading' && (
+            {/* Show "Searching..." only when there are no local results yet */}
+            {fetchStatus === 'Loading' && searchResults.length === 0 && (
               <li style={{ padding: '15px 14px', color: '#aaa', fontSize: '1rem' }}>
-                Intercepting game database...
+                Searching games...
               </li>
             )}
             {searchResults.map(game => (
               <li
-                key={game.id}
+                key={`${game.source}_${game.id}`}
                 onMouseDown={e => { e.preventDefault(); handleGameSelect(game); }}
                 style={{
                   padding: '15px 14px', cursor: 'pointer', borderBottom: '1px solid #333',
@@ -807,42 +886,48 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
                 onMouseLeave={e => e.currentTarget.style.backgroundColor = '#111'}
               >
                 <span>{game.name}</span>
-                {game.year && <span style={{ color: '#888', fontSize: '0.8rem' }}>{game.year}</span>}
+                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {/* Library badge — these games have full built-in knowledge */}
+                  {game.source === 'library' && (
+                    <span style={{
+                      fontSize: '0.6rem', color: '#00ff88',
+                      border: '1px solid #00ff88', borderRadius: 3,
+                      padding: '1px 5px', letterSpacing: '0.05em'
+                    }}>BUILT-IN</span>
+                  )}
+                  {game.year && <span style={{ color: '#888', fontSize: '0.8rem' }}>{game.year}</span>}
+                </span>
               </li>
             ))}
+            {/* No results after both library and BGG returned nothing */}
+            {fetchStatus === 'Empty' && searchResults.length === 0 && (
+              <li style={{ padding: '15px 14px', color: '#888', fontSize: '0.9rem' }}>
+                No games found — try scanning a rulebook
+              </li>
+            )}
           </ul>
         )}
       </div>
 
-      {/* BGG search status — only shown when no game is confirmed yet */}
-      {!selectedGame && fetchStatus === 'Error' && searchTerm.length > 1 && (
+      {/* BGG error is only shown when local library also returned nothing */}
+      {!selectedGame && fetchStatus === 'Error' && searchResults.length === 0 && searchTerm.length > 1 && (
         <div style={{ fontSize: '0.8rem', color: '#ff0055', marginTop: 4, marginBottom: 6 }}>
           BGG lookup failed — check /api/bgg or network
         </div>
       )}
-      {!selectedGame && fetchStatus === 'Empty' && searchTerm.length > 1 && (
-        <div style={{ fontSize: '0.8rem', color: '#ffa500', marginTop: 4, marginBottom: 6 }}>
-          No matching BGG games found
-        </div>
-      )}
 
-      {/* BGG metadata indicator — tags only, not rule knowledge */}
+      {/* Selected game indicator */}
       {selectedGame && (
         <div style={{ fontSize: '0.8rem', color: '#00ff88', marginBottom: 6 }}>
-          {isFetchingMechanics ? '⏳ Loading metadata...'
+          {selectedGame.source === 'library'
+            ? '✓ Knowledge ready'
+            : isFetchingMechanics ? '⏳ Loading metadata...'
             : bggMechanics ? `✓ ${bggMechanics}`
             : '✓ Game selected'}
         </div>
       )}
 
-      {/* Cached knowledge indicator */}
-      {gameKnowledge.confidence === 'high' && gameKnowledge.sourceType === 'local' && (
-        <div style={{ fontSize: '0.75rem', color: '#00ff88', marginBottom: 6 }}>
-          ✓ Game knowledge cached
-        </div>
-      )}
-
-      {/* Confidence warnings — guide user toward better knowledge sources */}
+      {/* Confidence warnings */}
       {showWarning === 'low' && (
         <div style={{
           backgroundColor: 'rgba(255,165,0,0.1)', border: '1px solid #ffa500',
@@ -862,9 +947,9 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
         </div>
       )}
 
-      {/* Image uploads — two distinct paths with different purposes */}
+      {/* Image uploads */}
       <div style={{ display: 'flex', gap: '10px', marginTop: 15 }}>
-        {/* Box image: weak visual identification — does not provide rule knowledge */}
+        {/* Box image: visual identification only */}
         <div style={{ flex: 1 }}>
           {boxImageData ? (
             <div style={{ position: 'relative' }}>
@@ -884,7 +969,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
           )}
         </div>
 
-        {/* Rulebook image: preferred source — Gemini extracts real game knowledge from rule text */}
+        {/* Rulebook image: growth path for games not in the library */}
         <div style={{ flex: 1 }}>
           {rulebookImageData ? (
             <div style={{ position: 'relative' }}>
@@ -910,7 +995,6 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       <input type="file" ref={rulebookFileInputRef} style={{ display: 'none' }}
         accept="image/*" onChange={handleRulebookImage} />
 
-      {/* Vibe */}
       <label style={{ marginTop: 20 }}>{t.chooseVibeLabel}</label>
       <select value={vibeKey} onChange={e => setVibeKey(e.target.value)}>
         {Object.keys(t.vibes).map(k => (
