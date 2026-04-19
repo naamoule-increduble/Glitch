@@ -84,6 +84,10 @@ const emptyKnowledge = () => ({
   rawRuleText: '',
 });
 
+// Cached outside the component — model lookup runs once per page load, not per batch.
+// Every call after the first returns immediately without a network round-trip.
+let _modelCache = null;
+
 // ─── STYLE HELPERS ────────────────────────────────────────────────────────────
 const removeStyle = {
   position: 'absolute', top: 4, right: 4,
@@ -336,14 +340,16 @@ function App() {
 
   // ─── GEMINI MODEL SELECTION ───────────────────────────────────────────────
   const getBestModel = async () => {
+    if (_modelCache) return _modelCache;
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`);
       const data = await res.json();
-      return data.models?.find(m => m.name.includes('flash'))?.name
+      _modelCache = data.models?.find(m => m.name.includes('flash'))?.name
         || data.models?.find(m => m.name.includes('gemini-1.5-pro'))?.name
         || data.models?.[0]?.name
         || 'models/gemini-1.5-flash';
-    } catch { return 'models/gemini-1.5-flash'; }
+    } catch { _modelCache = 'models/gemini-1.5-flash'; }
+    return _modelCache;
   };
 
   // ─── RULEBOOK KNOWLEDGE EXTRACTION ───────────────────────────────────────
@@ -524,56 +530,79 @@ Constraints:
   // ─── GLITCH RULE GENERATION ───────────────────────────────────────────────
   // Builds the generation prompt using real gameKnowledge fields.
   // GLITCH rules are temporary one-round overlays — never stored as game knowledge.
-  // The prompt uses the game's own vocabulary so rules sound like they belong there.
-  const buildGlitchPrompt = (knowledge, vibeKey, history) => {
+  //
+  // batchSize: 5 for the first (fast) batch, 10 for subsequent batches.
+  // mutableHooks are formatted as an explicit trigger list so the model stays
+  // phase-aware — rules must attach to a real moment, not invent new ones.
+  // Language instruction ensures rules stay in the game's own language (e.g. Hebrew).
+  const buildGlitchPrompt = (knowledge, vibeKey, history, batchSize = 10) => {
     const { gameName, vocabulary, actions, coreElements, mutableHooks, ruleSummary, mechanics, confidence } = knowledge;
-    const hasRichKnowledge = vocabulary.length > 0 || coreElements.length > 0;
+    const hasRichKnowledge = vocabulary.length > 0 || mutableHooks.length > 0;
 
-    const vibeInstructions = {
-      chaotic: 'Total chaos — flip the game logic upside down.',
-      drinking: 'Party rules — actions trigger drinking.',
-      funny: 'Silly fun — harmless and family-friendly.',
+    // Each vibe has: a tone description, an example style, and an anti-pattern to avoid.
+    // Chaos is deliberately amplified — mild/safe twists are called out explicitly.
+    const VIBES = {
+      chaotic: {
+        tone: 'TOTAL CHAOS. Invert, reverse, or steal. The twist should feel wrong, surprising, or absurd.',
+        example: '"Roll dice? The player to your left moves instead." | "Pay rent? The owner pays YOU." | "Draw a card? Discard one from your hand first."',
+        avoid: 'Do NOT write safe or mild twists. Chaos means the rule actively breaks or inverts what was about to happen.',
+      },
+      drinking: {
+        tone: 'Party drinking game. Every twist makes someone drink. Be specific about WHO drinks and WHY.',
+        example: '"Land on someone\'s property? Drink instead of paying." | "Draw a bad card? Two drinks, pass it on."',
+        avoid: 'Do NOT just say "take a drink." Specify the exact trigger and who drinks.',
+      },
+      funny: {
+        tone: 'Silly and playful. Harmless absurdity — weird requirements, physical comedy, or unexpected role reversals.',
+        example: '"Roll a double? Stand up and spin once before moving." | "Lose a piece? Name it before it goes."',
+        avoid: 'Do NOT write anything mean-spirited or harmful. Keep it lighthearted.',
+      },
     };
 
+    const vibe = VIBES[vibeKey] || VIBES.funny;
+
+    // mutableHooks formatted as an explicit trigger list.
+    // The instruction "MUST attach to one of these" prevents the model from
+    // inventing triggers that happen at the wrong phase of the game.
+    const triggerBlock = mutableHooks.length > 0
+      ? `TRIGGER MOMENTS — rules MUST attach to one of these (do not invent new moments):\n${mutableHooks.map(h => `  • ${h}`).join('\n')}`
+      : '';
+
     const gameContext = hasRichKnowledge
-      ? `Game: ${gameName}
-Game vocabulary (use these terms): ${vocabulary.join(', ')}
-Player actions: ${actions.join(', ')}
-Core elements: ${coreElements.join(', ')}
-Twistable moments (preferred targets): ${mutableHooks.join(', ')}
-How the game works: ${ruleSummary}`
-      : `Game: ${gameName}
-Known mechanics: ${mechanics.join(', ')}
-Context: ${ruleSummary}`;
+      ? `GAME: ${gameName}
+HOW IT WORKS: ${ruleSummary}
+GAME TERMS (use these — not generic board game words): ${vocabulary.join(', ')}
+PLAYER ACTIONS: ${actions.slice(0, 8).join(' | ')}
+CORE ELEMENTS: ${coreElements.join(', ')}
+${triggerBlock}`
+      : `GAME: ${gameName}
+HOW IT WORKS: ${ruleSummary}
+KNOWN MECHANICS: ${mechanics.join(', ')}`;
 
     const historyBlock = history.length > 0
-      ? `\n\n❌ Already shown — do not repeat:\n${history.slice(-20).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
+      ? `\nALREADY USED — do not repeat:\n${history.slice(-15).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
       : '';
 
     const conservativeNote = confidence === 'medium'
-      ? '\nNote: Knowledge is limited — ground rules in the game name and known mechanics.'
+      ? '\nNOTE: Limited knowledge — stay grounded in the game name and known mechanics only.'
       : '';
 
-    return `You are GLITCH — you create temporary one-round funny rule overlays for board games.
-GLITCH rules are overlays only. They do not permanently change the game.
+    return `You are GLITCH. You write temporary one-round rule overlays for board games.
 
 ${gameContext}
 
-🎯 Vibe: ${t.vibes[vibeKey]}
-📋 Tone: ${vibeInstructions[vibeKey]}
+VIBE: ${vibe.tone}
+EXAMPLE STYLE: ${vibe.example}
+AVOID: ${vibe.avoid}
 
-⚡ WRITING RULES:
-1. Max 6-10 words per rule
-2. Use REAL game terms from this game — not generic words
-3. Format: trigger + twist (e.g. "Roll doubles? Steal someone's card")
-4. Twist the twistable moments — do not break core game identity
-5. No emojis. No markdown. No explanations.
-6. Return exactly 10 rules as a JSON array${conservativeNote}${historyBlock}
-
-✅ Good (Monopoly): "Land on Go? Go to Jail instead"
-✅ Good (Catan): "Place robber? Give a sheep to victim"
-✅ Good (UNO): "Play a +4? Pick someone's card to discard"
-❌ Bad: "Skip your turn!" (no trigger, too generic)
+RULES FOR WRITING RULES:
+1. Format: [trigger] + [twist]. Max 10 words total.
+2. Trigger must be a real game moment (from the trigger list above if provided)
+3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — specify who and why' : 'silly, playful, or physically absurd'}
+4. Use this game's own vocabulary — not generic board game words
+5. Write rules in the same language as the game vocabulary provided
+6. No emojis. No markdown. No explanations.
+7. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
 
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
@@ -593,28 +622,38 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
 
     try {
       const model = await getBestModel();
+
+      // First batch is small (5 rules) so the first card appears faster.
+      // Subsequent refill batches generate 10 for a deeper queue.
+      const batchSize = isInitial ? 5 : 10;
+
+      // Temperature: chaos gets higher randomness for wilder output.
+      // Token cap keeps generation fast — 5 rules ≈ ~200 tokens, 10 ≈ ~400.
+      const temperature = vibeKey === 'chaotic' ? 1.4 : vibeKey === 'drinking' ? 1.1 : 1.0;
+      const maxOutputTokens = isInitial ? 250 : 500;
+
       let requestBody;
 
       if (boxImg && !rulebookImg) {
         // Box image only — use Gemini vision for visual identification.
-        const prompt = `You are GLITCH — create 10 short funny temporary rule overlays for this board game.
-📸 Photo of a game box: identify the game and create rules using its actual elements.
-🎯 Vibe: ${t.vibes[vibeKey]} — ${vibeKey === 'chaotic' ? 'chaos' : vibeKey === 'drinking' ? 'drinking rules' : 'silly fun'}
-Rules: 6-10 words each, trigger + twist format, real game terms only, no emojis.
+        const prompt = `You are GLITCH — create ${batchSize} short funny temporary rule overlays for this board game.
+📸 Identify the game from the box photo and write rules using its actual game terms.
+VIBE: ${vibeKey === 'chaotic' ? 'CHAOS — invert or break normal rules' : vibeKey === 'drinking' ? 'drinking rules — specify who drinks and why' : 'silly fun — harmless and playful'}
+Format: [trigger] + [twist], max 10 words, no emojis.
 Return ONLY: ["rule 1", "rule 2", ...]`;
         requestBody = {
           contents: [{ parts: [
             { text: prompt },
             { inlineData: { mimeType: 'image/jpeg', data: boxImg.split(',')[1] } }
           ]}],
-          generationConfig: { responseMimeType: 'application/json' }
+          generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
         };
       } else {
         // Knowledge-driven generation — uses real game structure from loadGameKnowledge.
-        const prompt = buildGlitchPrompt(knowledge, vibeKey, history);
+        const prompt = buildGlitchPrompt(knowledge, vibeKey, history, batchSize);
         requestBody = {
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
+          generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
         };
         if (rulebookImg && isInitial) {
           requestBody.contents[0].parts.push(
