@@ -58,6 +58,14 @@ const normalizeGameKey = (gameName, gameId) => {
   return `name_${(gameName || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
 };
 
+// Normalizes a name for fuzzy matching.
+// Preserves both ASCII letters/digits AND Hebrew characters (U+0590–U+05FF).
+// Strips everything else (spaces, punctuation, diacritics).
+// This means "Taki" → "taki" and "טאקי" → "טאקי" — they still won't match each other
+// by normalization alone. That's why aliases (stored at learn-time) are the real bridge.
+const normalizeForMatch = (str) =>
+  (str || '').toLowerCase().replace(/[^a-z0-9\u0590-\u05ff]/g, '');
+
 const getStoredGameKnowledge = (gameKey) => {
   try {
     const raw = localStorage.getItem(`glitch_gk_${gameKey}`);
@@ -65,38 +73,49 @@ const getStoredGameKnowledge = (gameKey) => {
   } catch { return null; }
 };
 
+// Saves game knowledge and writes extra index keys for every known alias.
+// Rulebook-learned games may have multiple valid names: the extracted gameName
+// (which may be in the rulebook's language) plus the user's original search term
+// and any other aliases. All are stored as separate index keys so that direct
+// key lookup (getStoredGameKnowledge) works for any of them on future sessions.
 const saveStoredGameKnowledge = (gameKey, knowledge) => {
-  // Browser-local memory only — not shared across devices or users.
-  // Saves rulebook-extracted knowledge so the user doesn't need to re-upload next session.
   try {
     const data = JSON.stringify(knowledge);
     localStorage.setItem(`glitch_gk_${gameKey}`, data);
-    // Also index by normalized game name so fuzzy lookup can find it regardless of
-    // how the game was identified (library id vs BGG id vs free-typed name).
-    if (knowledge.gameName) {
-      const nameKey = `name_${knowledge.gameName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-      if (`glitch_gk_${nameKey}` !== `glitch_gk_${gameKey}`) {
-        localStorage.setItem(`glitch_gk_${nameKey}`, data);
+    // Collect all known names: gameName + any aliases stored on the knowledge object.
+    const allNames = [knowledge.gameName, ...(knowledge.aliases || [])].filter(Boolean);
+    for (const n of allNames) {
+      const norm = normalizeForMatch(n);
+      if (norm.length < 2) continue;
+      const nameKey = `glitch_gk_name_${norm}`;
+      if (nameKey !== `glitch_gk_${gameKey}`) {
+        localStorage.setItem(nameKey, data);
       }
     }
   } catch { /* localStorage unavailable — non-critical */ }
 };
 
-// Scans all stored game knowledge entries for a name match when the direct key fails.
-// Handles case differences, spacing, and minor naming variations across sessions.
-// Browser-local only — this does not search any external database.
+// Scans all stored game knowledge for a name match when the direct key lookup fails.
+// Checks gameName AND aliases — because rulebook-learned games may be stored under
+// the extracted name (e.g. Hebrew "טאקי") while the user types the English name "Taki".
+// The original search term is preserved as an alias at learn-time to bridge this gap.
 const findStoredKnowledgeByName = (searchName) => {
   try {
-    const q = (searchName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const q = normalizeForMatch(searchName);
     if (q.length < 2) return null;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key || !key.startsWith('glitch_gk_')) continue;
+      if (!key?.startsWith('glitch_gk_')) continue;
       try {
         const data = JSON.parse(localStorage.getItem(key));
-        if (!data?.gameName) continue;
-        const stored = data.gameName.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (stored === q || stored.startsWith(q) || q.startsWith(stored)) return data;
+        if (!data) continue;
+        // Check gameName and all aliases — matching should not depend on one canonical name.
+        const allNames = [data.gameName, ...(data.aliases || [])].filter(Boolean);
+        for (const n of allNames) {
+          const stored = normalizeForMatch(n);
+          if (stored.length < 2) continue;
+          if (stored === q || stored.startsWith(q) || q.startsWith(stored)) return data;
+        }
       } catch { continue; }
     }
     return null;
@@ -109,6 +128,9 @@ const emptyKnowledge = () => ({
   sourceType: 'manual',    // 'seed' | 'rulebook_image' | 'bgg_minimal' | 'manual'
   confidence: 'low',        // 'high' | 'medium' | 'low'
   sourceLanguage: '',       // language the knowledge was extracted from (e.g. 'Hebrew')
+  // aliases: all known names for this game — the user's original search term is always
+  // included so lookup works even when the stored gameName is in a different language.
+  aliases: [],
   mechanics: [],
   vocabulary: [],           // game-specific nouns for authentic GLITCH rules
   actions: [],              // what players do — triggers for GLITCH overlays
@@ -525,6 +547,7 @@ Constraints:
           earlyGameHooks: extracted.earlyGameHooks || [],
           ruleSummary: extracted.ruleSummary || '',
           rawRuleText: extracted.rawRuleText || '',
+          aliases: name !== (extracted.gameName || name) ? [name] : [],
         };
         saveStoredGameKnowledge(gameKey, knowledge);
         setGameKnowledge(knowledge);
