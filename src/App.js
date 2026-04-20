@@ -432,7 +432,7 @@ Constraints:
             { text: prompt },
             { inlineData: { mimeType: 'image/jpeg', data: imageData.split(',')[1] } }
           ]}],
-          generationConfig: { responseMimeType: 'application/json' }
+          generationConfig: {}
         })
       }
     );
@@ -675,40 +675,46 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   // ─── GENERATION HELPERS ───────────────────────────────────────────────────
 
   // Parses raw model text into a clean string array.
-  // Handles: bare arrays, object-wrapped arrays {"rules":[...]}, truncated JSON.
+  // Does NOT require JSON-mode output — works on plain text responses too.
+  // Handles: bare arrays, object-wrapped arrays, preamble text, truncated arrays.
   const parseGeneratedRules = (rawText) => {
     const cleaned = (rawText || '').replace(/```json|```/g, '').trim();
     console.log('[GLITCH] parseGeneratedRules | raw length:', cleaned.length, '| preview:', cleaned.slice(0, 120));
 
-    // ── Attempt 1: strict parse ──────────────────────────────────────────────
+    // ── Step 1: find the JSON array in the response ──────────────────────────
+    // Plain text mode may include preamble like "Here are the rules:\n[...]"
+    // We locate the first "[" and last "]" to extract just the array portion.
+    let candidate = cleaned;
+    const arrayStart = cleaned.indexOf('[');
+    const arrayEnd = cleaned.lastIndexOf(']');
+    if (arrayStart !== -1 && arrayEnd > arrayStart) {
+      candidate = cleaned.slice(arrayStart, arrayEnd + 1);
+    } else if (arrayStart !== -1) {
+      // No closing ] — truncated. Grab from [ to end of text for repair below.
+      candidate = cleaned.slice(arrayStart);
+    }
+
+    // ── Step 2: try strict parse of the extracted candidate ──────────────────
     let parsed;
     try {
-      parsed = JSON.parse(cleaned);
+      parsed = JSON.parse(candidate);
       console.log('[GLITCH] JSON parse: success | type:', Array.isArray(parsed) ? 'array' : typeof parsed);
     } catch (e) {
       console.warn('[GLITCH] JSON parse failed —', e.message, '— attempting repair');
 
-      // ── Attempt 2: repair truncated array ──────────────────────────────────
-      // MAX_TOKENS truncation typically produces one of:
-      //   ["rule 1", "rule 2", "rule 3     ← cut mid-string, no closing ]
-      //   ["rule 1", "rule 2",              ← trailing comma, no closing ]
-      // Strategy: find the last complete string entry and close the array there.
-      let repairable = cleaned;
-
-      // Strip trailing whitespace and partial last entry
-      // Find the last properly closed string: ends with "  (quote at end before junk)
-      const lastCompleteEntry = repairable.lastIndexOf('",');
-      const lastCompleteEnd = repairable.lastIndexOf('"]');
-      const cutPoint = Math.max(lastCompleteEntry, lastCompleteEnd);
-
-      if (repairable.startsWith('[') && cutPoint > 1) {
-        // Close after the last complete quoted entry
-        const repaired = repairable.slice(0, lastCompleteEntry + 1) + ']';
+      // ── Step 3: repair truncated array ───────────────────────────────────
+      // Truncation produces: ["rule 1", "rule 2", "rule 3   ← no closing "  or ]
+      // Find the last fully-closed string entry and close the array there.
+      const lastClosedEntry = candidate.lastIndexOf('",');
+      const lastClosedFinal = candidate.lastIndexOf('"]');
+      const cutAt = Math.max(lastClosedEntry, lastClosedFinal);
+      if (candidate.startsWith('[') && cutAt > 1) {
+        const repaired = candidate.slice(0, lastClosedEntry + 1) + ']';
         try {
           parsed = JSON.parse(repaired);
-          console.log('[GLITCH] JSON repair: success via truncation fix | recovered array length:', Array.isArray(parsed) ? parsed.length : 'N/A');
+          console.log('[GLITCH] JSON repair: recovered', Array.isArray(parsed) ? parsed.length : 0, 'entries from truncated output');
         } catch (e2) {
-          console.warn('[GLITCH] JSON repair also failed —', e2.message);
+          console.warn('[GLITCH] JSON repair failed —', e2.message);
           return [];
         }
       } else {
@@ -735,7 +741,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     return rules;
   };
 
-  const isUsableRuleBatch = (rules, minCount = 3) => rules.length >= minCount;
+  const isUsableRuleBatch = (rules, minCount = 2) => rules.length >= minCount;
 
   // Builds the minimal fallback prompt used when the main prompt fails.
   // Shorter, less strict, higher chance of getting a valid JSON array back.
@@ -799,12 +805,10 @@ Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
 
       // Temperature: chaos gets higher randomness for wilder output.
       const temperature = vibeKey === 'chaotic' ? 1.4 : vibeKey === 'drinking' ? 1.1 : 1.0;
-      // Token budget: sized so a full JSON array of rules can always close without truncation.
-      // 5 rules × ~20 tokens/rule + JSON overhead → 500 is the safe floor for initial.
-      // 10 rules × ~20 tokens/rule + JSON overhead → 800 for refill batches.
-      const maxOutputTokens = isInitial ? 600 : 900;
+      // No maxOutputTokens or responseMimeType — plain text mode lets the model use its
+      // full default token budget. JSON mode was capping output to ~10-60 tokens in practice.
 
-      console.log(`[GLITCH] batch config | isInitial:${isInitial} batchSize:${batchSize} maxOutputTokens:${maxOutputTokens} temperature:${temperature}`);
+      console.log(`[GLITCH] batch config | isInitial:${isInitial} batchSize:${batchSize} temperature:${temperature} (plain text mode)`);
 
       // ── Attempt 1: main prompt ─────────────────────────────────────────────
       let newRules = [];
@@ -816,16 +820,16 @@ Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
 📸 Identify the game from the box photo and write rules using its actual game terms.
 VIBE: ${vibeKey === 'chaotic' ? 'CHAOS — invert or break normal rules' : vibeKey === 'drinking' ? 'drinking rules — specify who drinks and why' : 'family party — physical comedy, silly social challenges, safe for all ages'}
 Format: [trigger] + [twist], max 10 words, no emojis.
-Return ONLY: ["rule 1", "rule 2", ...]`;
+Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
         ({ rules: newRules, truncated: wasTruncated } = await runGenerationRequest(model, {
           contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: boxImg.split(',')[1] } }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
+          generationConfig: { temperature }
         }, 'box-image main'));
       } else {
         const prompt = buildGlitchPrompt(knowledge, vibeKey, history, batchSize);
         const body = {
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
+          generationConfig: { temperature }
         };
         if (rulebookImg && isInitial) {
           body.contents[0].parts.push({ inlineData: { mimeType: 'image/jpeg', data: rulebookImg.split(',')[1] } });
@@ -840,7 +844,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
         const fallbackPrompt = buildFallbackPrompt(knowledge, vibeKey, 5);
         ({ rules: newRules } = await runGenerationRequest(model, {
           contents: [{ parts: [{ text: fallbackPrompt }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 1.0, maxOutputTokens: 600 }
+          generationConfig: { temperature: 1.0 }
         }, 'fallback'));
         console.log(`[GLITCH] fallback returned ${newRules.length} rules`);
       }
