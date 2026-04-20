@@ -672,9 +672,81 @@ RULES FOR WRITING RULES:
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
 
+  // ─── GENERATION HELPERS ───────────────────────────────────────────────────
+
+  // Parses raw model text into a clean string array.
+  // Handles: bare arrays, object-wrapped arrays {"rules":[...]}, partial JSON.
+  const parseGeneratedRules = (rawText) => {
+    const cleaned = (rawText || '').replace(/```json|```/g, '').trim();
+    console.log('[GLITCH] parseGeneratedRules | raw length:', cleaned.length, '| preview:', cleaned.slice(0, 120));
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+      console.log('[GLITCH] JSON parse: success | type:', Array.isArray(parsed) ? 'array' : typeof parsed);
+    } catch (e) {
+      console.warn('[GLITCH] JSON parse: failed —', e.message);
+      return [];
+    }
+    // If model wrapped the array in an object (e.g. {"rules": [...]})
+    if (!Array.isArray(parsed) && parsed && typeof parsed === 'object') {
+      const nested = Object.values(parsed).find(v => Array.isArray(v));
+      if (nested) {
+        console.log('[GLITCH] unwrapped object → array of length', nested.length);
+        parsed = nested;
+      } else {
+        console.warn('[GLITCH] parsed object has no nested array — unusable');
+        return [];
+      }
+    }
+    if (!Array.isArray(parsed)) return [];
+    const rules = parsed
+      .map(item => (typeof item === 'string' ? item.trim() : item?.rule || Object.values(item || {})[0] || ''))
+      .filter(r => typeof r === 'string' && r.length > 3 && r.length < 200);
+    console.log('[GLITCH] cleaned rules:', rules.length, 'usable');
+    return rules;
+  };
+
+  const isUsableRuleBatch = (rules, minCount = 3) => rules.length >= minCount;
+
+  // Builds the minimal fallback prompt used when the main prompt fails.
+  // Shorter, less strict, higher chance of getting a valid JSON array back.
+  const buildFallbackPrompt = (knowledge, vibeKey, batchSize) => {
+    const { gameName, vocabulary, ruleSummary } = knowledge;
+    const vibeHint = vibeKey === 'chaotic' ? 'chaotic and surprising'
+      : vibeKey === 'drinking' ? 'drinking game (say who drinks)'
+      : 'funny and family-friendly';
+    const terms = vocabulary.slice(0, 5).join(', ') || gameName;
+    return `Write 5 short funny board game rule overlays for ${gameName}.
+Style: ${vibeHint}. Use terms: ${terms}.
+${ruleSummary ? `Game summary: ${ruleSummary}` : ''}
+Format: short sentence, max 12 words. No emojis.
+Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
+  };
+
+  // Sends one generation request to Gemini and returns parsed rules (may be empty).
+  const runGenerationRequest = async (model, requestBody, label) => {
+    console.log('[GLITCH] runGenerationRequest:', label);
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${API_KEY}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }
+    );
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const finishReason = data.candidates?.[0]?.finishReason || 'unknown';
+    console.log('[GLITCH] finishReason:', finishReason, '| raw length:', rawText.length);
+    return parseGeneratedRules(rawText);
+  };
+
   // generateGlitchRulesBatch: produces session-only GLITCH rules from game knowledge.
   // Input: real gameKnowledge from loadGameKnowledge.
   // Output: temporary rule strings — never saved as canonical knowledge.
+  //
+  // Reliability contract:
+  //   1. Try main prompt. If result has < 3 usable rules, try fallback prompt once.
+  //   2. Only add rules to the queue if >= 3 usable rules exist.
+  //   3. Only switch to game screen (isInitial) if the queue actually has rules.
+  //   4. If everything fails on initial load, show the error fallback — never a blank game.
   const generateGlitchRulesBatch = useCallback(async (isInitial = false, knowledgeOverride = null) => {
     if (isGeneratingRef.current) return;
     isGeneratingRef.current = true;
@@ -684,6 +756,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     const boxImg = boxImageRef.current;
     const rulebookImg = rulebookImageRef.current;
     const history = historyRef.current;
+    const MIN_RULES = 3;
 
     try {
       const model = await getBestModel();
@@ -695,67 +768,67 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       // Temperature: chaos gets higher randomness for wilder output.
       // Token cap keeps generation fast — 5 rules ≈ ~200 tokens, 10 ≈ ~400.
       const temperature = vibeKey === 'chaotic' ? 1.4 : vibeKey === 'drinking' ? 1.1 : 1.0;
-      const maxOutputTokens = isInitial ? 250 : 500;
+      const maxOutputTokens = isInitial ? 400 : 600;
 
-      let requestBody;
+      // ── Attempt 1: main prompt ─────────────────────────────────────────────
+      let newRules = [];
+      let usedFallback = false;
 
       if (boxImg && !rulebookImg) {
-        // Box image only — use Gemini vision for visual identification.
         const prompt = `You are GLITCH — create ${batchSize} short funny temporary rule overlays for this board game.
 📸 Identify the game from the box photo and write rules using its actual game terms.
 VIBE: ${vibeKey === 'chaotic' ? 'CHAOS — invert or break normal rules' : vibeKey === 'drinking' ? 'drinking rules — specify who drinks and why' : 'family party — physical comedy, silly social challenges, safe for all ages'}
 Format: [trigger] + [twist], max 10 words, no emojis.
 Return ONLY: ["rule 1", "rule 2", ...]`;
-        requestBody = {
-          contents: [{ parts: [
-            { text: prompt },
-            { inlineData: { mimeType: 'image/jpeg', data: boxImg.split(',')[1] } }
-          ]}],
+        newRules = await runGenerationRequest(model, {
+          contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: boxImg.split(',')[1] } }] }],
           generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
-        };
+        }, 'box-image main');
       } else {
-        // Knowledge-driven generation — uses real game structure from loadGameKnowledge.
         const prompt = buildGlitchPrompt(knowledge, vibeKey, history, batchSize);
-        requestBody = {
+        const body = {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
         };
         if (rulebookImg && isInitial) {
-          requestBody.contents[0].parts.push(
-            { inlineData: { mimeType: 'image/jpeg', data: rulebookImg.split(',')[1] } }
-          );
+          body.contents[0].parts.push({ inlineData: { mimeType: 'image/jpeg', data: rulebookImg.split(',')[1] } });
         }
+        newRules = await runGenerationRequest(model, body, 'knowledge main');
       }
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${API_KEY}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }
-      );
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
+      // ── Attempt 2: fallback prompt if main returned too few rules ──────────
+      if (!isUsableRuleBatch(newRules, MIN_RULES)) {
+        console.warn(`[GLITCH] main prompt returned ${newRules.length} rules (need ${MIN_RULES}) — trying fallback`);
+        usedFallback = true;
+        const fallbackPrompt = buildFallbackPrompt(knowledge, vibeKey, 5);
+        newRules = await runGenerationRequest(model, {
+          contents: [{ parts: [{ text: fallbackPrompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 1.0, maxOutputTokens: 400 }
+        }, 'fallback');
+        console.log(`[GLITCH] fallback returned ${newRules.length} rules`);
+      } else {
+        console.log(`[GLITCH] batch accepted: ${newRules.length} rules${usedFallback ? ' (fallback)' : ''}`);
+      }
 
-      let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-      rawText = rawText.replace(/```json|```/g, '').trim();
-
-      let parsed;
-      try { parsed = JSON.parse(rawText); } catch { parsed = []; }
-
-      const newRules = Array.isArray(parsed)
-        ? parsed.map(item => (typeof item === 'string' ? item.trim() : item.rule || Object.values(item)[0] || ''))
-                .filter(r => r.length > 3 && r.length < 200)
-        : [];
-
-      setRulesQueue(prev => { const u = [...prev, ...newRules]; queueRef.current = u; return u; });
-      if (isInitial) setScreen('game');
+      // ── Accept or reject the batch ─────────────────────────────────────────
+      if (isUsableRuleBatch(newRules, MIN_RULES)) {
+        console.log(`[GLITCH] batch accepted: ${newRules.length} rules${usedFallback ? ' via fallback' : ''}`);
+        setRulesQueue(prev => { const u = [...prev, ...newRules]; queueRef.current = u; return u; });
+        if (isInitial) setScreen('game');
+      } else {
+        console.error(`[GLITCH] both attempts failed — ${newRules.length} rules after fallback`);
+        throw new Error(`Generation failed: only ${newRules.length} usable rules after retry`);
+      }
 
     } catch (error) {
-      console.error('[GLITCH] generation error:', error);
+      console.error('[GLITCH] generation error:', error.message);
       if (isInitial) {
         const fallback = [t.errors.networkError, t.errors.checkConnection, t.errors.tryAgain];
         setRulesQueue(fallback);
         queueRef.current = fallback;
         setScreen('game');
       }
+      // Non-initial failures are silent — the queue stays as-is and the user can try again.
     } finally {
       isGeneratingRef.current = false;
       if (isInitial) setInitialLoading(false);
