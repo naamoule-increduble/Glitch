@@ -582,12 +582,17 @@ Constraints:
     const { gameName, vocabulary, actions, coreElements, mutableHooks, earlyGameHooks, ruleSummary, mechanics, confidence, sourceLanguage } = knowledge;
     const hasRichKnowledge = vocabulary.length > 0 || mutableHooks.length > 0;
 
-    // Use earlyGameHooks for the first few turns — these are setup/start-of-game moments.
-    // After turn 5 the full mutableHooks list unlocks mid/late-game triggers.
+    // Use earlyGameHooks as PRIORITY suggestions in the first few turns.
+    // Never restrict to only early hooks — that limits the model to too few triggers.
+    // Always include the full mutableHooks list; early hooks appear first as hints.
     const isEarlyGame = history.length < 5;
-    const activeHooks = isEarlyGame && earlyGameHooks?.length > 0
-      ? earlyGameHooks
-      : mutableHooks;
+    let activeHooks;
+    if (isEarlyGame && earlyGameHooks?.length > 0) {
+      const earlySet = new Set(earlyGameHooks);
+      activeHooks = [...earlyGameHooks, ...mutableHooks.filter(h => !earlySet.has(h))];
+    } else {
+      activeHooks = mutableHooks;
+    }
 
     // Each vibe has: a tone description, an example style, and an anti-pattern to avoid.
     // Chaos is deliberately amplified — mild/safe twists are called out explicitly.
@@ -616,10 +621,11 @@ Constraints:
     // The instruction "MUST attach to one of these" prevents the model from
     // inventing triggers that happen at the wrong phase of the game.
     const hookLabel = isEarlyGame && earlyGameHooks?.length > 0
-      ? 'EARLY GAME TRIGGER MOMENTS (game is just starting)'
+      ? 'TRIGGER MOMENTS (★ = early-game priority)'
       : 'TRIGGER MOMENTS';
+    const earlySet = new Set(earlyGameHooks || []);
     const triggerBlock = activeHooks.length > 0
-      ? `${hookLabel} — rules MUST attach to one of these (do not invent new moments):\n${activeHooks.map(h => `  • ${h}`).join('\n')}`
+      ? `${hookLabel} — pick from these real game moments:\n${activeHooks.map(h => `  ${earlySet.has(h) ? '★' : '•'} ${h}`).join('\n')}`
       : '';
 
     const gameContext = hasRichKnowledge
