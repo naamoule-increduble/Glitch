@@ -675,18 +675,47 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   // ─── GENERATION HELPERS ───────────────────────────────────────────────────
 
   // Parses raw model text into a clean string array.
-  // Handles: bare arrays, object-wrapped arrays {"rules":[...]}, partial JSON.
+  // Handles: bare arrays, object-wrapped arrays {"rules":[...]}, truncated JSON.
   const parseGeneratedRules = (rawText) => {
     const cleaned = (rawText || '').replace(/```json|```/g, '').trim();
     console.log('[GLITCH] parseGeneratedRules | raw length:', cleaned.length, '| preview:', cleaned.slice(0, 120));
+
+    // ── Attempt 1: strict parse ──────────────────────────────────────────────
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
       console.log('[GLITCH] JSON parse: success | type:', Array.isArray(parsed) ? 'array' : typeof parsed);
     } catch (e) {
-      console.warn('[GLITCH] JSON parse: failed —', e.message);
-      return [];
+      console.warn('[GLITCH] JSON parse failed —', e.message, '— attempting repair');
+
+      // ── Attempt 2: repair truncated array ──────────────────────────────────
+      // MAX_TOKENS truncation typically produces one of:
+      //   ["rule 1", "rule 2", "rule 3     ← cut mid-string, no closing ]
+      //   ["rule 1", "rule 2",              ← trailing comma, no closing ]
+      // Strategy: find the last complete string entry and close the array there.
+      let repairable = cleaned;
+
+      // Strip trailing whitespace and partial last entry
+      // Find the last properly closed string: ends with "  (quote at end before junk)
+      const lastCompleteEntry = repairable.lastIndexOf('",');
+      const lastCompleteEnd = repairable.lastIndexOf('"]');
+      const cutPoint = Math.max(lastCompleteEntry, lastCompleteEnd);
+
+      if (repairable.startsWith('[') && cutPoint > 1) {
+        // Close after the last complete quoted entry
+        const repaired = repairable.slice(0, lastCompleteEntry + 1) + ']';
+        try {
+          parsed = JSON.parse(repaired);
+          console.log('[GLITCH] JSON repair: success via truncation fix | recovered array length:', Array.isArray(parsed) ? parsed.length : 'N/A');
+        } catch (e2) {
+          console.warn('[GLITCH] JSON repair also failed —', e2.message);
+          return [];
+        }
+      } else {
+        return [];
+      }
     }
+
     // If model wrapped the array in an object (e.g. {"rules": [...]})
     if (!Array.isArray(parsed) && parsed && typeof parsed === 'object') {
       const nested = Object.values(parsed).find(v => Array.isArray(v));
@@ -723,7 +752,8 @@ Format: short sentence, max 12 words. No emojis.
 Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
   };
 
-  // Sends one generation request to Gemini and returns parsed rules (may be empty).
+  // Sends one generation request to Gemini and returns { rules, truncated }.
+  // truncated=true means finishReason was MAX_TOKENS — caller can log/distinguish this.
   const runGenerationRequest = async (model, requestBody, label) => {
     console.log('[GLITCH] runGenerationRequest:', label);
     const res = await fetch(
@@ -731,11 +761,13 @@ Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }
     );
     const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
+    if (data.error) throw new Error('api:' + data.error.message);
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const finishReason = data.candidates?.[0]?.finishReason || 'unknown';
     console.log('[GLITCH] finishReason:', finishReason, '| raw length:', rawText.length);
-    return parseGeneratedRules(rawText);
+    const truncated = finishReason === 'MAX_TOKENS';
+    if (truncated) console.warn('[GLITCH] ⚠️ MAX_TOKENS — response was cut off, attempting JSON repair');
+    return { rules: parseGeneratedRules(rawText), truncated };
   };
 
   // generateGlitchRulesBatch: produces session-only GLITCH rules from game knowledge.
@@ -766,12 +798,17 @@ Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
       const batchSize = isInitial ? 5 : 10;
 
       // Temperature: chaos gets higher randomness for wilder output.
-      // Token cap keeps generation fast — 5 rules ≈ ~200 tokens, 10 ≈ ~400.
       const temperature = vibeKey === 'chaotic' ? 1.4 : vibeKey === 'drinking' ? 1.1 : 1.0;
-      const maxOutputTokens = isInitial ? 400 : 600;
+      // Token budget: sized so a full JSON array of rules can always close without truncation.
+      // 5 rules × ~20 tokens/rule + JSON overhead → 500 is the safe floor for initial.
+      // 10 rules × ~20 tokens/rule + JSON overhead → 800 for refill batches.
+      const maxOutputTokens = isInitial ? 600 : 900;
+
+      console.log(`[GLITCH] batch config | isInitial:${isInitial} batchSize:${batchSize} maxOutputTokens:${maxOutputTokens} temperature:${temperature}`);
 
       // ── Attempt 1: main prompt ─────────────────────────────────────────────
       let newRules = [];
+      let wasTruncated = false;
       let usedFallback = false;
 
       if (boxImg && !rulebookImg) {
@@ -780,10 +817,10 @@ Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
 VIBE: ${vibeKey === 'chaotic' ? 'CHAOS — invert or break normal rules' : vibeKey === 'drinking' ? 'drinking rules — specify who drinks and why' : 'family party — physical comedy, silly social challenges, safe for all ages'}
 Format: [trigger] + [twist], max 10 words, no emojis.
 Return ONLY: ["rule 1", "rule 2", ...]`;
-        newRules = await runGenerationRequest(model, {
+        ({ rules: newRules, truncated: wasTruncated } = await runGenerationRequest(model, {
           contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: boxImg.split(',')[1] } }] }],
           generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens }
-        }, 'box-image main');
+        }, 'box-image main'));
       } else {
         const prompt = buildGlitchPrompt(knowledge, vibeKey, history, batchSize);
         const body = {
@@ -793,42 +830,46 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
         if (rulebookImg && isInitial) {
           body.contents[0].parts.push({ inlineData: { mimeType: 'image/jpeg', data: rulebookImg.split(',')[1] } });
         }
-        newRules = await runGenerationRequest(model, body, 'knowledge main');
+        ({ rules: newRules, truncated: wasTruncated } = await runGenerationRequest(model, body, 'knowledge main'));
       }
 
       // ── Attempt 2: fallback prompt if main returned too few rules ──────────
       if (!isUsableRuleBatch(newRules, MIN_RULES)) {
-        console.warn(`[GLITCH] main prompt returned ${newRules.length} rules (need ${MIN_RULES}) — trying fallback`);
+        console.warn(`[GLITCH] main returned ${newRules.length} rules${wasTruncated ? ' (was truncated)' : ''} — trying fallback`);
         usedFallback = true;
         const fallbackPrompt = buildFallbackPrompt(knowledge, vibeKey, 5);
-        newRules = await runGenerationRequest(model, {
+        ({ rules: newRules } = await runGenerationRequest(model, {
           contents: [{ parts: [{ text: fallbackPrompt }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 1.0, maxOutputTokens: 400 }
-        }, 'fallback');
+          generationConfig: { responseMimeType: 'application/json', temperature: 1.0, maxOutputTokens: 600 }
+        }, 'fallback'));
         console.log(`[GLITCH] fallback returned ${newRules.length} rules`);
-      } else {
-        console.log(`[GLITCH] batch accepted: ${newRules.length} rules${usedFallback ? ' (fallback)' : ''}`);
       }
 
       // ── Accept or reject the batch ─────────────────────────────────────────
       if (isUsableRuleBatch(newRules, MIN_RULES)) {
-        console.log(`[GLITCH] batch accepted: ${newRules.length} rules${usedFallback ? ' via fallback' : ''}`);
+        console.log(`[GLITCH] ✅ batch accepted: ${newRules.length} rules${usedFallback ? ' via fallback' : ''}`);
         setRulesQueue(prev => { const u = [...prev, ...newRules]; queueRef.current = u; return u; });
         if (isInitial) setScreen('game');
       } else {
-        console.error(`[GLITCH] both attempts failed — ${newRules.length} rules after fallback`);
-        throw new Error(`Generation failed: only ${newRules.length} usable rules after retry`);
+        console.error(`[GLITCH] ❌ both attempts failed — ${newRules.length} usable rules`);
+        // Distinguish: truncation/parse failure vs actual network failure
+        throw new Error(wasTruncated ? 'truncated' : 'parse:empty');
       }
 
     } catch (error) {
-      console.error('[GLITCH] generation error:', error.message);
+      console.error('[GLITCH] generation catch:', error.message);
       if (isInitial) {
-        const fallback = [t.errors.networkError, t.errors.checkConnection, t.errors.tryAgain];
+        // "Network hiccup" only for real network/API errors.
+        // Truncation and parse failures get a different message.
+        const isTruncation = error.message === 'truncated' || error.message.startsWith('parse:');
+        const fallback = isTruncation
+          ? ['GLITCH signal lost — tap to retry', 'Output corrupted — try again', 'GLITCH mis-fired — one more time']
+          : [t.errors.networkError, t.errors.checkConnection, t.errors.tryAgain];
         setRulesQueue(fallback);
         queueRef.current = fallback;
         setScreen('game');
       }
-      // Non-initial failures are silent — the queue stays as-is and the user can try again.
+      // Non-initial failures are silent — queue stays, user can tap GLITCH again.
     } finally {
       isGeneratingRef.current = false;
       if (isInitial) setInitialLoading(false);
