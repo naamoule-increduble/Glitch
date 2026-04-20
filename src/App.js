@@ -734,28 +734,82 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       }
     }
     if (!Array.isArray(parsed)) return [];
-    const rules = parsed
+    const raw = parsed
       .map(item => (typeof item === 'string' ? item.trim() : item?.rule || Object.values(item || {})[0] || ''))
       .filter(r => typeof r === 'string' && r.length > 3 && r.length < 200);
-    console.log('[GLITCH] cleaned rules:', rules.length, 'usable');
-    return rules;
+    const processed = processRawRules(raw);
+    console.log('[GLITCH] cleaned rules:', processed.length, 'usable (from', raw.length, 'raw)');
+    return processed;
+  };
+
+  // ── Rule quality pipeline ─────────────────────────────────────────────────
+
+  // Light cleanup: strip markdown artifacts and normalize punctuation.
+  // Does NOT rewrite meaning — only cleans surface formatting.
+  const cleanRule = (rule) => {
+    let r = rule;
+    // Strip markdown bold/italic markers (**word** or *word*)
+    r = r.replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1');
+    // Strip backticks
+    r = r.replace(/`/g, '');
+    // Normalize multiple spaces
+    r = r.replace(/\s{2,}/g, ' ');
+    // Normalize spacing around punctuation
+    r = r.replace(/\s+([?.!,])/g, '$1');
+    // Simple rewrite: "X means Y" → "X? Y." — catches the most common bad pattern
+    r = r.replace(/^(.{3,40})\s+means\s+(.+)$/i, (_, trigger, twist) => {
+      const t = trigger.trim().replace(/[.?!,]+$/, '');
+      const tw = twist.trim().replace(/[.]+$/, '');
+      return `${t}? ${tw.charAt(0).toUpperCase() + tw.slice(1)}.`;
+    });
+    return r.trim();
+  };
+
+  // Quality gate: returns false for rules with obvious bad patterns.
+  // Keeps this lightweight — only rejects clearly broken output.
+  const passesQualityFilter = (rule) => {
+    if (!rule || rule.length < 5) return false;
+    const r = rule.toLowerCase();
+    // Still contains markdown markers after cleanup
+    if (/\*/.test(rule) || /`/.test(rule)) return false;
+    // Explanatory/meta constructions that don't sound like game events
+    if (/ means /.test(r) && !/\?/.test(rule)) return false;
+    if (/this rule/.test(r)) return false;
+    if (/you now have to/.test(r)) return false;
+    if (/players must now/.test(r)) return false;
+    // Unfinished trailing junk (ends with connector words)
+    if (/\b(and|or|but|if|when|then|the|a|an)\s*[.!?]?$/.test(r)) return false;
+    return true;
+  };
+
+  // Applies cleanup then quality filter to a raw rule list.
+  // Logs how many were dropped at each stage.
+  const processRawRules = (rawRules) => {
+    const cleaned = rawRules.map(cleanRule);
+    const passed = cleaned.filter(passesQualityFilter);
+    const dropped = rawRules.length - passed.length;
+    if (dropped > 0) console.log(`[GLITCH] quality filter: dropped ${dropped}/${rawRules.length} rules`);
+    return passed;
   };
 
   const isUsableRuleBatch = (rules, minCount = 2) => rules.length >= minCount;
 
   // Builds the minimal fallback prompt used when the main prompt fails.
-  // Shorter, less strict, higher chance of getting a valid JSON array back.
-  const buildFallbackPrompt = (knowledge, vibeKey, batchSize) => {
-    const { gameName, vocabulary, ruleSummary } = knowledge;
-    const vibeHint = vibeKey === 'chaotic' ? 'chaotic and surprising'
-      : vibeKey === 'drinking' ? 'drinking game (say who drinks)'
-      : 'funny and family-friendly';
-    const terms = vocabulary.slice(0, 5).join(', ') || gameName;
-    return `Write 5 short funny board game rule overlays for ${gameName}.
-Style: ${vibeHint}. Use terms: ${terms}.
-${ruleSummary ? `Game summary: ${ruleSummary}` : ''}
-Format: short sentence, max 12 words. No emojis.
-Return ONLY a JSON array: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
+  // Shorter than the main prompt but keeps GLITCH's event-card voice.
+  // Style enforced: trigger + twist, "X? Y." format. No explanatory phrasing.
+  const buildFallbackPrompt = (knowledge, vibeKey) => {
+    const { gameName, vocabulary, mutableHooks } = knowledge;
+    const vibeInstruction = vibeKey === 'chaotic'
+      ? 'Chaos vibe: invert or break the normal rule. "Roll dice? Opponent moves instead."'
+      : vibeKey === 'drinking'
+      ? 'Drinking vibe: someone drinks. Say exactly who and why. "Draw a card? Take two sips."'
+      : 'Family Party vibe: physical or silly challenge. "Play Reverse? Everyone claps twice."';
+    const terms = (mutableHooks?.slice(0, 3).join(', ') || vocabulary?.slice(0, 5).join(', ') || gameName);
+    return `You are GLITCH. Write 5 temporary rule overlays for ${gameName}.
+${vibeInstruction}
+Game moments to twist: ${terms}
+Format: [trigger]? [twist]. Max 10 words. No emojis. No "X means Y".
+Return ONLY: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
   };
 
   // Sends one generation request to Gemini and returns { rules, truncated }.
@@ -841,7 +895,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       if (!isUsableRuleBatch(newRules, MIN_RULES)) {
         console.warn(`[GLITCH] main returned ${newRules.length} rules${wasTruncated ? ' (was truncated)' : ''} — trying fallback`);
         usedFallback = true;
-        const fallbackPrompt = buildFallbackPrompt(knowledge, vibeKey, 5);
+        const fallbackPrompt = buildFallbackPrompt(knowledge, vibeKey);
         ({ rules: newRules } = await runGenerationRequest(model, {
           contents: [{ parts: [{ text: fallbackPrompt }] }],
           generationConfig: { temperature: 1.0 }
