@@ -213,7 +213,6 @@ function App() {
   const cooldownTimerRef = useRef(null);
   const boxFileInputRef = useRef(null);
   const rulebookFileInputRef = useRef(null);
-  const searchDebounceRef = useRef(null);
   const dropdownRef = useRef(null);
   const queueRef = useRef([]);
   const isGeneratingRef = useRef(false);
@@ -534,17 +533,14 @@ KNOWN MECHANICS: ${mechanics.join(', ')}`;
       ? '\nNOTE: Limited knowledge — stay grounded in the game name and known mechanics only.'
       : '';
 
-    // Output language matches the app's UI language — always, regardless of rulebook language.
-    // langConfig.name is the human-readable language name (e.g. "English", "Hebrew").
-    // When more UI languages are added to LANGUAGES, this auto-adapts.
+    // Output language always matches the app's UI language.
+    // langConfig.name auto-adapts when more UI languages are added to LANGUAGES.
     const outputLang = langConfig.name;
-    const langInstruction = sourceLanguage && sourceLanguage.toLowerCase() !== outputLang.toLowerCase()
-      ? `OUTPUT LANGUAGE: ${outputLang}. The rulebook was in ${sourceLanguage} — write every rule in ${outputLang} only.`
-      : `OUTPUT LANGUAGE: ${outputLang}.`;
+    const hasNonEnglishContent = sourceLanguage && sourceLanguage.toLowerCase() !== outputLang.toLowerCase();
 
     return `You are GLITCH. You write temporary one-round rule overlays for board games.
 
-${langInstruction}
+⚠️ CRITICAL: Write ALL rules in ${outputLang}. Every word of every rule must be ${outputLang}.${hasNonEnglishContent ? ` The game data below contains ${sourceLanguage} text — use it only as reference, never copy it into your output.` : ''}
 
 ${gameContext}
 
@@ -556,10 +552,11 @@ RULES FOR WRITING RULES:
 1. Format: [trigger] + [twist]. Max 10 words total.
 2. Trigger must be a real game moment (from the trigger list above if provided)
 3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — specify who and why' : 'silly, physical, or a fun social challenge'}
-4. Use this game's own vocabulary — not generic board game words
-5. No emojis. No markdown. No explanations. Write in ${outputLang} only.
+4. Translate any non-${outputLang} game terms into ${outputLang} in your output.
+5. No emojis. No markdown. No explanations.
 6. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
 
+REMINDER: Output must be ${outputLang} only.
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
 
@@ -698,10 +695,10 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     const terms = (mutableHooks?.slice(0, 3).join(', ') || vocabulary?.slice(0, 5).join(', ') || gameName);
     const outputLang = langConfig.name;
     return `You are GLITCH. Write 5 temporary rule overlays for ${gameName}.
-OUTPUT LANGUAGE: ${outputLang}. Write every rule in ${outputLang} only.
+⚠️ Write every word in ${outputLang} only. If game terms are in another language, translate them.
 ${vibeInstruction}
 Game moments to twist: ${terms}
-Format: [trigger]? [twist]. Max 10 words. No emojis. No "X means Y".
+Format: [trigger]? [twist]. Max 10 words. No emojis. No "X means Y". ${outputLang} only.
 Return ONLY: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
   };
 
