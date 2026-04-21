@@ -73,17 +73,22 @@ const getStoredGameKnowledge = (gameKey) => {
   } catch { return null; }
 };
 
-// Saves game knowledge and writes extra index keys for every known alias.
-// Rulebook-learned games may have multiple valid names: the extracted gameName
-// (which may be in the rulebook's language) plus the user's original search term
-// and any other aliases. All are stored as separate index keys so that direct
-// key lookup (getStoredGameKnowledge) works for any of them on future sessions.
+// Saves a learned local game entry and writes index keys for every known alias.
+// Always stamps sourceType as 'learned_local' and updates timestamps.
+// Multiple index keys are written so any alias (including the user's original
+// search term) can resolve to the same entry on future sessions.
 const saveStoredGameKnowledge = (gameKey, knowledge) => {
   try {
-    const data = JSON.stringify(knowledge);
+    const now = new Date().toISOString();
+    const toStore = {
+      ...knowledge,
+      sourceType: 'learned_local',
+      createdAt: knowledge.createdAt || now,
+      updatedAt: now,
+    };
+    const data = JSON.stringify(toStore);
     localStorage.setItem(`glitch_gk_${gameKey}`, data);
-    // Collect all known names: gameName + any aliases stored on the knowledge object.
-    const allNames = [knowledge.gameName, ...(knowledge.aliases || [])].filter(Boolean);
+    const allNames = [toStore.gameName, ...(toStore.aliases || [])].filter(Boolean);
     for (const n of allNames) {
       const norm = normalizeForMatch(n);
       if (norm.length < 2) continue;
@@ -125,20 +130,20 @@ const findStoredKnowledgeByName = (searchName) => {
 const emptyKnowledge = () => ({
   gameId: null,
   gameName: '',
-  sourceType: 'manual',    // 'seed' | 'rulebook_image' | 'bgg_minimal' | 'manual'
-  confidence: 'low',        // 'high' | 'medium' | 'low'
-  sourceLanguage: '',       // language the knowledge was extracted from (e.g. 'Hebrew')
-  // aliases: all known names for this game — the user's original search term is always
-  // included so lookup works even when the stored gameName is in a different language.
+  sourceType: 'manual',    // 'seed' | 'learned_local' | 'manual'
+  confidence: 'low',
+  sourceLanguage: '',
   aliases: [],
   mechanics: [],
-  vocabulary: [],           // game-specific nouns for authentic GLITCH rules
-  actions: [],              // what players do — triggers for GLITCH overlays
-  coreElements: [],         // board spaces, card types, pieces, resources
-  mutableHooks: [],         // concrete moments safe to twist for one-round humor
-  earlyGameHooks: [],       // subset of hooks relevant at game start (before mid/late development)
+  vocabulary: [],
+  actions: [],
+  coreElements: [],
+  mutableHooks: [],
+  earlyGameHooks: [],
   ruleSummary: '',
   rawRuleText: '',
+  createdAt: null,
+  updatedAt: null,
 });
 
 // Cached outside the component — model lookup runs once per page load, not per batch.
@@ -173,14 +178,11 @@ function App() {
   const [screen, setScreen] = useState('home');
 
   // ── Search state ──
-  // searchResults holds merged results: library entries first, then BGG results.
-  // selectedGame carries source: 'library' | 'bgg' so loadGameKnowledge knows the path.
+  // searchResults holds library matches. selectedGame carries source: 'library'.
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
-  const [bggMechanics, setBggMechanics] = useState('');
-  const [isFetchingMechanics, setIsFetchingMechanics] = useState(false);
   const [fetchStatus, setFetchStatus] = useState('Idle');
 
   // ── Game knowledge state ──
@@ -218,7 +220,6 @@ function App() {
   const gameKnowledgeRef = useRef(emptyKnowledge());
   const selectedGameRef = useRef(null);
   const searchTermRef = useRef('');
-  const bggMechanicsRef = useRef('');
   const boxImageRef = useRef(null);
   const rulebookImageRef = useRef(null);
   const historyRef = useRef([]);
@@ -228,7 +229,6 @@ function App() {
   useEffect(() => { gameKnowledgeRef.current = gameKnowledge; }, [gameKnowledge]);
   useEffect(() => { selectedGameRef.current = selectedGame; }, [selectedGame]);
   useEffect(() => { searchTermRef.current = searchTerm; }, [searchTerm]);
-  useEffect(() => { bggMechanicsRef.current = bggMechanics; }, [bggMechanics]);
   useEffect(() => { boxImageRef.current = boxImageData; }, [boxImageData]);
   useEffect(() => { rulebookImageRef.current = rulebookImageData; }, [rulebookImageData]);
 
@@ -242,114 +242,12 @@ function App() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // ─── BGG PROXY ────────────────────────────────────────────────────────────
-  // BGG is supplementary — the app works without it. If the proxy returns 502
-  // (BGG blocked) or the network fails, local library results still appear.
-  const proxyFetch = async (url) => {
-    console.log('[GLITCH] proxyFetch →', url.slice(0, 100));
-    const res = await fetch(`/api/bgg?url=${encodeURIComponent(url)}`);
-    console.log('[GLITCH] proxyFetch status:', res.status);
-    if (!res.ok) throw new Error('proxy status ' + res.status);
-    const text = await res.text();
-    if (text.includes('Unauthorized')) throw new Error('BGG blocked');
-    return text;
-  };
-
-  // ─── BGG SEARCH ───────────────────────────────────────────────────────────
-  const parseBGGSearch = (text) => {
-    if (!text || text.length < 30 || text.includes('Unauthorized') || text.includes('<message>')) return [];
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(text, 'text/xml');
-    if (xml.querySelector('parsererror')) return [];
-
-    const v2 = Array.from(xml.querySelectorAll('item[type="boardgame"], item')).slice(0, 8);
-    if (v2.length > 0) {
-      return v2.map(item => {
-        const nameEl = item.querySelector('name[type="primary"]') || item.querySelector('name');
-        const yearEl = item.querySelector('yearpublished');
-        return {
-          id: item.getAttribute('id'),
-          name: nameEl?.getAttribute('value') || nameEl?.textContent?.trim() || 'Unknown',
-          year: yearEl?.getAttribute('value') || '',
-          source: 'bgg',
-        };
-      }).filter(r => r.name !== 'Unknown');
-    }
-    return Array.from(xml.querySelectorAll('boardgame')).slice(0, 8).map(item => {
-      const nameEl = item.querySelector('name[primary="true"]') || item.querySelector('name');
-      return {
-        id: item.getAttribute('objectid'),
-        name: nameEl?.textContent?.trim() || 'Unknown',
-        year: item.querySelector('yearpublished')?.textContent?.trim() || '',
-        source: 'bgg',
-      };
-    }).filter(r => r.name !== 'Unknown');
-  };
-
-  // searchBGG runs after the local library search completes.
-  // It supplements local results — if BGG fails, local library results remain visible.
-  // localResults are passed in so BGG results can be deduped and appended below.
-  const searchBGG = useCallback(async (query, localResults = []) => {
-    if (!query || query.trim().length < 2) return;
-    console.log('[GLITCH] searchBGG started:', query);
-    try {
-      const text = await proxyFetch(
-        `https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame`
-      );
-      const bggResults = parseBGGSearch(text);
-      console.log('[GLITCH] searchBGG parsed:', bggResults.length, 'results');
-
-      // Dedup: hide BGG results whose names are already in the local library list
-      const localNames = new Set(localResults.map(r => r.name.toLowerCase()));
-      const filteredBgg = bggResults.filter(r => !localNames.has(r.name.toLowerCase()));
-      const merged = [...localResults, ...filteredBgg];
-
-      setSearchResults(merged);
-      setFetchStatus(merged.length > 0 ? 'Ok' : 'Empty');
-    } catch (e) {
-      console.warn('[GLITCH] searchBGG error (non-critical):', e.message);
-      // BGG failed — keep showing local results, don't show an error if we have them
-      if (localResults.length > 0) {
-        setSearchResults(localResults);
-        setFetchStatus('Ok');
-      } else {
-        setFetchStatus('Error');
-      }
-    }
-  }, []);
-
-  // Fetches BGG mechanic/category tags for BGG-selected games only.
-  const fetchBGGMetadata = useCallback(async (gameId) => {
-    if (!gameId) return;
-    console.log('[GLITCH] fetchBGGMetadata started for gameId:', gameId);
-    setIsFetchingMechanics(true);
-    try {
-      const text = await proxyFetch(
-        `https://boardgamegeek.com/xmlapi2/thing?id=${gameId}&stats=0`
-      );
-      const xml = new DOMParser().parseFromString(text, 'text/xml');
-      const mechanics = Array.from(xml.querySelectorAll('link[type="boardgamemechanic"]'))
-        .map(el => el.getAttribute('value')).filter(Boolean).slice(0, 8);
-      const categories = Array.from(xml.querySelectorAll('link[type="boardgamecategory"]'))
-        .map(el => el.getAttribute('value')).filter(Boolean).slice(0, 4);
-      const combined = [...mechanics, ...categories].join(', ');
-      setBggMechanics(combined);
-      bggMechanicsRef.current = combined;
-    } catch (e) {
-      console.warn('[GLITCH] BGG metadata unavailable (non-critical):', e.message);
-    } finally {
-      setIsFetchingMechanics(false);
-    }
-  }, []);
-
   const handleSearchChange = useCallback((value) => {
     console.log('[GLITCH] handleSearchChange:', value);
     setSearchTerm(value);
     searchTermRef.current = value;
     setSelectedGame(null);
     selectedGameRef.current = null;
-    setBggMechanics('');
-    bggMechanicsRef.current = '';
     setShowWarning(null);
     setGameKnowledge(emptyKnowledge());
     gameKnowledgeRef.current = emptyKnowledge();
@@ -358,7 +256,6 @@ function App() {
       setSearchResults([]);
       setShowDropdown(false);
       setFetchStatus('Idle');
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
       return;
     }
 
@@ -374,14 +271,8 @@ function App() {
 
     setSearchResults(libraryMatches);
     setShowDropdown(true);
-    // Show Loading only if library has no matches (BGG may fill the gap)
-    setFetchStatus(libraryMatches.length > 0 ? 'Ok' : 'Loading');
-
-    // BGG fires after debounce as a supplementary source.
-    // If BGG is blocked or slow, the library results are already visible.
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => searchBGG(value, libraryMatches), 500);
-  }, [searchBGG]);
+    setFetchStatus(libraryMatches.length > 0 ? 'Ok' : 'Empty');
+  }, []);
 
   const handleGameSelect = useCallback((game) => {
     console.log('[GLITCH] handleGameSelect:', game.name, '| source:', game.source, '| id:', game.id);
@@ -391,9 +282,7 @@ function App() {
     searchTermRef.current = game.name;
     setShowDropdown(false);
     setShowWarning(null);
-    // Library games carry full knowledge already — no BGG metadata fetch needed
-    if (game.source === 'bgg') fetchBGGMetadata(game.id);
-  }, [fetchBGGMetadata]);
+  }, []);
 
   // ─── GEMINI MODEL SELECTION ───────────────────────────────────────────────
   const getBestModel = async () => {
@@ -469,11 +358,10 @@ Constraints:
   // Builds structured game knowledge before GLITCH rule generation.
   //
   // Priority order:
-  //   A. Internal library   — instant, no network, primary path
-  //   B. localStorage cache — previously extracted rulebook knowledge
-  //   C. Rulebook image     — Gemini vision extraction, saved for future reuse
-  //   D. BGG minimal        — secondary, only if a BGG game was selected
-  //   E. Nothing            — caller shows warning, asks for rulebook upload
+  //   A. Internal library      — instant, no network, curated seed knowledge
+  //   B. Learned local library — user's previously extracted rulebook knowledge
+  //   C. Fresh rulebook image  — Gemini vision extraction, saved as learned_local
+  //   D. Nothing               — caller shows warning, asks for rulebook upload
   //
   // Generated GLITCH rules are NEVER written here.
   const loadGameKnowledge = useCallback(async () => {
@@ -482,29 +370,14 @@ Constraints:
     const gameId = game?.id || null;
     const gameKey = normalizeGameKey(name, gameId);
     const rulebookImg = rulebookImageRef.current;
-    const bggMechanicsStr = bggMechanicsRef.current;
 
     setIsLoadingKnowledge(true);
     setShowWarning(null);
 
-    // B-early. localStorage — check FIRST even for library games.
-    //    Rulebook upload always overrides library seed knowledge.
-    //    Also try fuzzy name scan if the direct key misses.
-    const stored = getStoredGameKnowledge(gameKey)
-      || findStoredKnowledgeByName(name);
-    if (stored && (stored.confidence === 'high' || stored.confidence === 'medium')) {
-      console.log('[GLITCH] loadGameKnowledge source: localStorage cache —', gameKey);
-      setGameKnowledge(stored);
-      gameKnowledgeRef.current = stored;
-      setIsLoadingKnowledge(false);
-      return stored;
-    }
-
-    // A. Internal library — the primary game knowledge source.
-    //    No network access required. Works offline. Returns immediately.
+    // A. Internal library — always the first source. Instant, no network, curated.
     if (game?.source === 'library' && game.libraryEntry) {
       const entry = game.libraryEntry;
-      console.log('[GLITCH] loadGameKnowledge source: internal library —', entry.canonicalName);
+      console.log('[GLITCH] knowledge source: internal library (seed) —', entry.canonicalName);
       const knowledge = {
         ...emptyKnowledge(),
         gameId: entry.id,
@@ -525,19 +398,32 @@ Constraints:
       return knowledge;
     }
 
-    console.log('[GLITCH] loadGameKnowledge — no library/cache match | rulebookImg:', !!rulebookImg);
+    // B. Learned local library — previously extracted rulebook knowledge.
+    //    First-class knowledge source, not temporary cache.
+    //    Try direct key lookup, then alias scan for cross-language matches.
+    const stored = getStoredGameKnowledge(gameKey) || findStoredKnowledgeByName(name);
+    if (stored && (stored.confidence === 'high' || stored.confidence === 'medium')) {
+      const aliasNote = (stored.aliases || []).length > 0 ? ` (aliases: ${stored.aliases.join(', ')})` : '';
+      console.log('[GLITCH] knowledge source: learned local library —', stored.gameName, aliasNote);
+      setGameKnowledge(stored);
+      gameKnowledgeRef.current = stored;
+      setIsLoadingKnowledge(false);
+      return stored;
+    }
 
-    // C. Rulebook image — the growth path for games not in the internal library.
-    //    Gemini reads the actual rule text. Knowledge is saved to localStorage
-    //    so the user only needs to upload once per game.
+    console.log('[GLITCH] knowledge source: no library/learned match | rulebookImg:', !!rulebookImg);
+
+    // C. Fresh rulebook extraction — user uploaded a rulebook image.
+    //    Gemini reads actual rule text. Saved as learned_local for future sessions.
     if (rulebookImg) {
       try {
         const extracted = await extractKnowledgeFromRulebookImage(rulebookImg, name);
+        const now = new Date().toISOString();
         const knowledge = {
           ...emptyKnowledge(),
           gameId,
           gameName: extracted.gameName || name,
-          sourceType: 'rulebook_image',
+          sourceType: 'learned_local',
           confidence: extracted.confidence || 'high',
           sourceLanguage: extracted.sourceLanguage || '',
           vocabulary: extracted.vocabulary || [],
@@ -548,8 +434,11 @@ Constraints:
           ruleSummary: extracted.ruleSummary || '',
           rawRuleText: extracted.rawRuleText || '',
           aliases: name !== (extracted.gameName || name) ? [name] : [],
+          createdAt: now,
+          updatedAt: now,
         };
         saveStoredGameKnowledge(gameKey, knowledge);
+        console.log('[GLITCH] knowledge source: fresh rulebook extraction → saved as learned_local —', knowledge.gameName);
         setGameKnowledge(knowledge);
         gameKnowledgeRef.current = knowledge;
         setIsLoadingKnowledge(false);
@@ -559,33 +448,8 @@ Constraints:
       }
     }
 
-    // D. BGG minimal — secondary path, only when a BGG result was confirmed.
-    //    Crowd-sourced mechanic tags are better than nothing but not rule text.
-    //    The app works without BGG — this is never the critical path.
-    if (game?.source === 'bgg') {
-      const mechanicsArr = bggMechanicsStr ? bggMechanicsStr.split(', ').filter(Boolean) : [];
-      const confidence = mechanicsArr.length >= 3 ? 'medium' : 'low';
-      console.log('[GLITCH] loadGameKnowledge source: bgg_minimal | confidence:', confidence, '| mechanics:', mechanicsArr.length);
-      const knowledge = {
-        ...emptyKnowledge(),
-        gameId,
-        gameName: name,
-        sourceType: 'bgg_minimal',
-        confidence,
-        mechanics: mechanicsArr,
-        ruleSummary: mechanicsArr.length > 0
-          ? `${name} — a game involving: ${mechanicsArr.slice(0, 4).join(', ')}.`
-          : `${name} — board game.`,
-      };
-      if (confidence !== 'low') saveStoredGameKnowledge(gameKey, knowledge);
-      setGameKnowledge(knowledge);
-      gameKnowledgeRef.current = knowledge;
-      setIsLoadingKnowledge(false);
-      return knowledge;
-    }
-
-    // E. No usable knowledge — caller should show the rulebook upload prompt
-    console.log('[GLITCH] loadGameKnowledge source: none — no library match, no image, no BGG');
+    // D. No usable knowledge — caller shows the rulebook upload prompt.
+    console.log('[GLITCH] knowledge source: none — no library, no learned entry, no image');
     const none = { ...emptyKnowledge(), gameName: name, gameId };
     setGameKnowledge(none);
     gameKnowledgeRef.current = none;
@@ -670,11 +534,8 @@ KNOWN MECHANICS: ${mechanics.join(', ')}`;
       ? '\nNOTE: Limited knowledge — stay grounded in the game name and known mechanics only.'
       : '';
 
-    // Output language: use the UI language (always match the player's session language).
-    // sourceLanguage is the rulebook's language — used for knowledge extraction only, not output.
-    const langNote = sourceLanguage && sourceLanguage.toLowerCase() !== 'english'
-      ? `\nWRITE IN: English (the rulebook was in ${sourceLanguage}, but players need English output)`
-      : '';
+    // Output is always English regardless of the rulebook's source language.
+    const langNote = `\nWRITE IN: English${sourceLanguage && sourceLanguage.toLowerCase() !== 'english' ? ` (rulebook was in ${sourceLanguage})` : ''}`;
 
     return `You are GLITCH. You write temporary one-round rule overlays for board games.
 
@@ -908,7 +769,11 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { temperature }
         };
-        if (rulebookImg && isInitial) {
+        // Only include the rulebook image if we don't already have structured knowledge
+        // from a prior extraction. Library and learned_local entries already have all
+        // necessary fields — re-sending the image wastes tokens without benefit.
+        const hasStructuredKnowledge = knowledge.sourceType === 'seed' || knowledge.sourceType === 'learned_local';
+        if (rulebookImg && isInitial && !hasStructuredKnowledge) {
           body.contents[0].parts.push({ inlineData: { mimeType: 'image/jpeg', data: rulebookImg.split(',')[1] } });
         }
         ({ rules: newRules, truncated: wasTruncated } = await runGenerationRequest(model, body, 'knowledge main'));
@@ -1008,7 +873,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       return;
     }
 
-    // Low confidence fallback (BGG with few mechanics)
+    // Low confidence — proceed with warning shown
     console.log('[GLITCH] startGame: low confidence — showing warning but proceeding');
     setShowWarning('low');
     await generateGlitchRulesBatch(true, knowledge);
@@ -1084,7 +949,6 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       boxImageRef.current = reader.result;
       setSearchTerm(''); searchTermRef.current = '';
       setSelectedGame(null); selectedGameRef.current = null;
-      setBggMechanics(''); bggMechanicsRef.current = '';
       setGameKnowledge(emptyKnowledge()); gameKnowledgeRef.current = emptyKnowledge();
       setShowWarning(null);
     };
@@ -1117,7 +981,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
   };
 
   // ─── COMPUTED ─────────────────────────────────────────────────────────────
-  // Boot is allowed for: confirmed game (library or BGG) OR any uploaded image.
+  // Boot is allowed for: confirmed library game OR any uploaded image.
   // A library selection is the fastest path — no network, no uploads needed.
   const canStart = !initialLoading && !isLoadingKnowledge &&
     (!!selectedGame || !!boxImageData || !!rulebookImageData);
@@ -1166,12 +1030,6 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
             borderRadius: '0 0 8px 8px', zIndex: 9999, maxHeight: 250,
             overflowY: 'auto', listStyle: 'none', padding: 0, margin: 0
           }}>
-            {/* Show "Searching..." only when there are no local results yet */}
-            {fetchStatus === 'Loading' && searchResults.length === 0 && (
-              <li style={{ padding: '15px 14px', color: '#aaa', fontSize: '1rem' }}>
-                Searching games...
-              </li>
-            )}
             {searchResults.map(game => (
               <li
                 key={`${game.source}_${game.id}`}
@@ -1198,7 +1056,6 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
                 </span>
               </li>
             ))}
-            {/* No results after both library and BGG returned nothing */}
             {fetchStatus === 'Empty' && searchResults.length === 0 && (
               <li style={{ padding: '15px 14px', color: '#888', fontSize: '0.9rem' }}>
                 No games found — try scanning a rulebook
@@ -1208,21 +1065,10 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
         )}
       </div>
 
-      {/* BGG error is only shown when local library also returned nothing */}
-      {!selectedGame && fetchStatus === 'Error' && searchResults.length === 0 && searchTerm.length > 1 && (
-        <div style={{ fontSize: '0.8rem', color: '#ff0055', marginTop: 4, marginBottom: 6 }}>
-          BGG lookup failed — check /api/bgg or network
-        </div>
-      )}
-
       {/* Selected game indicator */}
       {selectedGame && (
         <div style={{ fontSize: '0.8rem', color: '#00ff88', marginBottom: 6 }}>
-          {selectedGame.source === 'library'
-            ? '✓ Knowledge ready'
-            : isFetchingMechanics ? '⏳ Loading metadata...'
-            : bggMechanics ? `✓ ${bggMechanics}`
-            : '✓ Game selected'}
+          ✓ Knowledge ready
         </div>
       )}
 
