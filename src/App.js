@@ -534,10 +534,17 @@ KNOWN MECHANICS: ${mechanics.join(', ')}`;
       ? '\nNOTE: Limited knowledge — stay grounded in the game name and known mechanics only.'
       : '';
 
-    // Output is always English regardless of the rulebook's source language.
-    const langNote = `\nWRITE IN: English${sourceLanguage && sourceLanguage.toLowerCase() !== 'english' ? ` (rulebook was in ${sourceLanguage})` : ''}`;
+    // Output language matches the app's UI language — always, regardless of rulebook language.
+    // langConfig.name is the human-readable language name (e.g. "English", "Hebrew").
+    // When more UI languages are added to LANGUAGES, this auto-adapts.
+    const outputLang = langConfig.name;
+    const langInstruction = sourceLanguage && sourceLanguage.toLowerCase() !== outputLang.toLowerCase()
+      ? `OUTPUT LANGUAGE: ${outputLang}. The rulebook was in ${sourceLanguage} — write every rule in ${outputLang} only.`
+      : `OUTPUT LANGUAGE: ${outputLang}.`;
 
     return `You are GLITCH. You write temporary one-round rule overlays for board games.
+
+${langInstruction}
 
 ${gameContext}
 
@@ -550,8 +557,8 @@ RULES FOR WRITING RULES:
 2. Trigger must be a real game moment (from the trigger list above if provided)
 3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — specify who and why' : 'silly, physical, or a fun social challenge'}
 4. Use this game's own vocabulary — not generic board game words
-5. No emojis. No markdown. No explanations.
-6. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${langNote}${historyBlock}
+5. No emojis. No markdown. No explanations. Write in ${outputLang} only.
+6. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
 
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
@@ -689,7 +696,9 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       ? 'Drinking vibe: someone drinks. Say exactly who and why. "Draw a card? Take two sips."'
       : 'Family Party vibe: physical or silly challenge. "Play Reverse? Everyone claps twice."';
     const terms = (mutableHooks?.slice(0, 3).join(', ') || vocabulary?.slice(0, 5).join(', ') || gameName);
+    const outputLang = langConfig.name;
     return `You are GLITCH. Write 5 temporary rule overlays for ${gameName}.
+OUTPUT LANGUAGE: ${outputLang}. Write every rule in ${outputLang} only.
 ${vibeInstruction}
 Game moments to twist: ${terms}
 Format: [trigger]? [twist]. Max 10 words. No emojis. No "X means Y".
