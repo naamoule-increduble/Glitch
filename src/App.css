@@ -1,3 +1,7 @@
+/* ================================================================
+   GLITCH — Cyberpunk / Hacker Terminal Theme
+   ================================================================ */
+
 * {
   margin: 0;
   padding: 0;
@@ -5,9 +9,9 @@
 }
 
 body {
-  font-family: 'Courier New', monospace;
+  font-family: 'Courier New', Courier, monospace;
   background: #0a0a0a;
-  color: #fff;
+  color: #c0c0c0;
   min-height: 100vh;
   display: flex;
   justify-content: center;
@@ -22,228 +26,474 @@ body {
   padding: 20px;
 }
 
-/* === CARD CONTAINER === */
+/* ── CARD ─────────────────────────────────────────────────────── */
 .card {
-  background: rgba(17, 17, 17, 0.95);
-  border: 1px solid #00d4ff;
+  background: #0d0d0d;
+  border: 1px solid #00d4ff33;
   border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
+  padding: 28px;
   position: relative;
+  box-shadow:
+    0 0 40px rgba(0, 212, 255, 0.06),
+    inset 0 0 60px rgba(0, 212, 255, 0.02);
 }
 
-/* === GLITCH TITLE === */
+/* ── GLITCH TITLE ─────────────────────────────────────────────── */
 .glitch-title {
-  font-size: 3rem;
+  font-size: 3.2rem;
   text-align: center;
   color: #00d4ff;
-  text-shadow: 
+  text-shadow:
     0 0 10px #00d4ff,
-    0 0 20px #00d4ff,
-    0 0 30px #00d4ff;
-  letter-spacing: 0.3rem;
-  margin-bottom: 30px;
-  animation: glitch-text 3s infinite;
+    0 0 30px #00d4ff88,
+    0 0 60px #00d4ff44;
+  letter-spacing: 0.4rem;
+  margin-bottom: 8px;
+  animation: glitch-text 4s infinite;
 }
 
 @keyframes glitch-text {
-  0%, 100% {
-    text-shadow: 
-      0 0 10px #00d4ff,
-      0 0 20px #00d4ff;
+  0%, 88%, 100% {
+    text-shadow: 0 0 10px #00d4ff, 0 0 30px #00d4ff88;
+    transform: none;
   }
-  25% {
-    text-shadow: 
-      -2px 0 #ff0055,
-      2px 0 #00d4ff;
-  }
-  50% {
-    text-shadow: 
-      2px 0 #ff0055,
-      -2px 0 #00d4ff;
-  }
-  75% {
-    text-shadow: 
-      0 0 10px #00d4ff,
-      0 0 20px #00d4ff;
-  }
+  91% { text-shadow: -3px 0 #ff0055, 3px 0 #00d4ff; transform: translate(-1px, 0); }
+  93% { text-shadow: 3px 0 #ff0055, -3px 0 #00d4ff; transform: translate(1px, 0); }
+  95% { text-shadow: 0 0 10px #00d4ff, 0 0 30px #00d4ff88; transform: none; }
 }
 
-/* === FORM ELEMENTS === */
+/* ── LABELS ───────────────────────────────────────────────────── */
 label {
   display: block;
-  color: #00d4ff;
-  font-size: 0.9rem;
-  margin-top: 15px;
-  margin-bottom: 8px;
+  color: #00ff88;
+  font-size: 0.65rem;
+  margin-top: 18px;
+  margin-bottom: 6px;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  letter-spacing: 0.1rem;
 }
 
+/* ── SELECT ───────────────────────────────────────────────────── */
 select {
   width: 100%;
-  padding: 12px;
-  background: #222;
-  border: 1px solid #00d4ff;
-  color: #fff;
-  border-radius: 8px;
-  font-size: 1rem;
+  padding: 10px 32px 10px 12px;
+  background: #111;
+  border: 1px solid #00d4ff33;
+  color: #00d4ff;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2300d4ff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
 }
 
-select:hover {
-  box-shadow: 0 0 10px #00d4ff;
-}
-
+select:hover,
 select:focus {
   outline: none;
-  box-shadow: 0 0 15px #00d4ff;
+  border-color: #00d4ff;
+  box-shadow: 0 0 8px #00d4ff33;
 }
 
-/* === NEON BUTTON === */
+select option {
+  background: #111;
+  color: #00d4ff;
+}
+
+/* ── TERMINAL INPUT ───────────────────────────────────────────── */
+.terminal-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0d0d0d;
+  border: 1px solid #00d4ff33;
+  border-radius: 4px;
+  padding: 0 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.terminal-input-wrapper:focus-within {
+  border-color: #00d4ff;
+  box-shadow: 0 0 10px #00d4ff22;
+}
+
+.terminal-search-icon {
+  font-size: 0.85rem;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.terminal-input-wrapper input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #00d4ff;
+  font-family: 'Courier New', monospace;
+  font-size: 0.95rem;
+  padding: 13px 0;
+  caret-color: #00d4ff;
+}
+
+.terminal-input-wrapper input::placeholder {
+  color: #00d4ff2a;
+  font-style: italic;
+}
+
+/* ── BOTTOM SHEET ─────────────────────────────────────────────── */
+.bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  border-radius: 20px 20px 0 0;
+  border-top: 2px solid #00d4ff;
+  z-index: 1000;
+  background: #0d0d0d;
+  max-height: 50vh;
+  overflow-y: auto;
+  list-style: none;
+  padding: 8px 0 env(safe-area-inset-bottom, 16px);
+  margin: 0;
+  box-shadow: 0 -8px 40px rgba(0, 212, 255, 0.12);
+  animation: slideUp 0.22s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.bottom-sheet::-webkit-scrollbar { width: 4px; }
+.bottom-sheet::-webkit-scrollbar-track { background: #0d0d0d; }
+.bottom-sheet::-webkit-scrollbar-thumb { background: #00d4ff33; border-radius: 2px; }
+
+.bottom-sheet-item {
+  padding: 14px 20px;
+  cursor: pointer;
+  border-bottom: 1px solid #161616;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #aaa;
+  font-size: 0.95rem;
+  transition: background 0.12s, color 0.12s;
+}
+
+.bottom-sheet-item:hover,
+.bottom-sheet-item:active {
+  background: #141414;
+  color: #00d4ff;
+}
+
+/* ── BUILT-IN BADGE ──────────────────────────────────────────── */
+.built-in-badge {
+  font-size: 0.55rem;
+  color: #00ff88;
+  border: 1px solid #00ff8833;
+  border-radius: 3px;
+  padding: 2px 6px;
+  letter-spacing: 0.08em;
+  background: #00ff8808;
+  flex-shrink: 0;
+}
+
+/* ── TARGET LOCK INDICATOR ───────────────────────────────────── */
+.lock-indicator {
+  font-size: 0.72rem;
+  color: #00ff88;
+  margin-bottom: 8px;
+  letter-spacing: 0.06em;
+  animation: lockBlink 1.2s steps(1) 3;
+}
+
+@keyframes lockBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+/* ── WARNING BOXES ───────────────────────────────────────────── */
+.warning-box {
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+}
+
+.warning-low  { background: rgba(255,165,0,0.05); border: 1px solid #ffa50055; color: #ffa500; }
+.warning-none { background: rgba(255,0,85,0.05);  border: 1px solid #ff005555; color: #ff0055; }
+
+/* ── UPLOAD BUTTONS ──────────────────────────────────────────── */
+.upload-btn {
+  width: 100%;
+  height: 72px;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: 'Courier New', monospace;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px;
+}
+
+.upload-btn.cyan   { border: 1px dashed #00d4ff44; color: #00d4ff; }
+.upload-btn.orange { border: 1px dashed #ff950044; color: #ff9500; }
+
+.upload-btn.cyan:hover   { background: rgba(0,212,255,0.05); border-color: #00d4ff88; }
+.upload-btn.orange:hover { background: rgba(255,149,0,0.05); border-color: #ff950088; }
+
+/* ── CYBER THUMBNAIL ─────────────────────────────────────────── */
+.cyber-thumbnail {
+  position: relative;
+  width: 100%;
+  height: 72px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #00d4ff33;
+}
+
+.cyber-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.65) saturate(0.7);
+}
+
+.scan-laser {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #00ff88 30%, #00ff88ee 50%, #00ff88 70%, transparent 100%);
+  box-shadow: 0 0 8px #00ff88, 0 0 16px #00ff8866;
+  pointer-events: none;
+  animation: laserScan 1.8s ease-in-out infinite;
+}
+
+@keyframes laserScan {
+  0%   { top: 0;              opacity: 1; }
+  92%  { top: calc(100% - 2px); opacity: 1; }
+  100% { top: calc(100% - 2px); opacity: 0; }
+}
+
+/* ── NEON BOOT BUTTON ────────────────────────────────────────── */
 .neon-btn {
   width: 100%;
   padding: 15px;
   background: transparent;
-  border: 2px solid #00d4ff;
+  border: 1px solid #00d4ff;
   color: #00d4ff;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: bold;
+  font-family: 'Courier New', monospace;
   text-transform: uppercase;
-  letter-spacing: 0.2rem;
-  border-radius: 8px;
+  letter-spacing: 0.25em;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.2s, box-shadow 0.2s;
   margin-top: 10px;
 }
 
 .neon-btn:hover:not(:disabled) {
-  background: rgba(0, 212, 255, 0.1);
-  box-shadow: 0 0 20px #00d4ff;
-  transform: scale(1.02);
+  background: rgba(0, 212, 255, 0.07);
+  box-shadow: 0 0 16px #00d4ff33;
 }
 
 .neon-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
-/* === FLIP CARD === */
-.flip-container {
-  perspective: 1000px;
-  width: 100%;
-  height: 300px;
-  margin: 30px 0;
+/* ── PULSE ACTIVE (boot button when ready) ───────────────────── */
+.pulse-active {
+  border-color: #00ff88 !important;
+  color: #00ff88 !important;
+  animation: bootPulse 2s ease-in-out infinite;
 }
 
-.flipper {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transition: transform 0.6s;
-  transform-style: preserve-3d;
+@keyframes bootPulse {
+  0%, 100% { box-shadow: 0 0 8px #00ff8844,  0 0 20px #00ff8822; }
+  50%       { box-shadow: 0 0 20px #00ff8888, 0 0 40px #00ff8844, 0 0 60px #00ff8822; }
 }
 
-.flip-active {
-  transform: rotateY(180deg);
+/* ── GAME HEADER BUTTONS ─────────────────────────────────────── */
+.reboot-btn {
+  background: none;
+  border: 1px solid #ff005533;
+  color: #ff0055;
+  font-family: 'Courier New', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.07em;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
 }
 
-.front, .back {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  backface-visibility: hidden;
+.reboot-btn:hover {
+  background: rgba(255, 0, 85, 0.07);
+  box-shadow: 0 0 8px #ff005522;
+}
+
+.vibe-indicator {
+  font-size: 0.65rem;
+  color: #00ff88;
+  letter-spacing: 0.1em;
+  opacity: 0.75;
+}
+
+/* ── HOLOGRAM DISPLAY ────────────────────────────────────────── */
+.hologram-display {
+  margin: 36px 0 28px;
+  min-height: 140px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  border-radius: 12px;
-  padding: 20px;
+  justify-content: center;
+  gap: 22px;
+}
+
+.hologram-text {
+  font-size: 1.25rem;
+  color: #00d4ff;
+  text-shadow:
+    0 0 6px #00d4ff,
+    0 0 18px #00d4ffaa,
+    0 0 36px #00d4ff55;
   text-align: center;
-  font-size: 1.3rem;
-  font-weight: bold;
-  line-height: 1.6;
+  line-height: 1.65;
+  letter-spacing: 0.04em;
+  max-width: 90%;
+  animation: hologramFlicker 7s ease-in-out infinite;
 }
 
-.front {
-  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
-  border: 2px solid #00d4ff;
-  color: #fff;
-  box-shadow:
-    0 0 20px rgba(0, 212, 255, 0.3),
-    inset 0 0 30px rgba(0, 212, 255, 0.1);
-  font-size: 3rem;
-  letter-spacing: 0.3rem;
-  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+@keyframes hologramFlicker {
+  0%, 87%, 100% { opacity: 1; }
+  89%  { opacity: 0.80; }
+  91%  { opacity: 1;    }
+  93%  { opacity: 0.88; }
+  95%  { opacity: 1;    }
 }
 
-.back {
-  background: linear-gradient(135deg, #00d4ff 0%, #0088cc 100%);
-  color: #000;
-  transform: rotateY(180deg);
-  font-size: 1.3rem;
-  letter-spacing: 0.05rem;
+/* ── STABILITY GAUGE ─────────────────────────────────────────── */
+.stability-gauge {
+  width: 72%;
+  height: 2px;
+  background: #00d4ff0d;
+  border-radius: 1px;
+  overflow: hidden;
+  position: relative;
 }
 
-/* === BIG GLITCH BUTTON === */
-.big-pulse-button {
-  width: 200px;
-  height: 200px;
+.stability-gauge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, #00d4ff, transparent);
+  animation: gaugeFlow 2.4s ease-in-out infinite;
+}
+
+@keyframes gaugeFlow {
+  0%   { left: -60%; }
+  100% { left: 120%; }
+}
+
+/* ── GLITCH MAIN BUTTON ──────────────────────────────────────── */
+.glitch-btn-main {
+  width: 180px;
+  height: 180px;
   border-radius: 50%;
   background: transparent;
-  border: 4px solid #00d4ff;
-  color: #fff;
-  font-size: 2rem;
+  border: 2px solid #00d4ff;
+  color: #ffffff;
+  font-size: 1.6rem;
   font-weight: bold;
-  letter-spacing: 0.2rem;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.2em;
   cursor: pointer;
-  transition: all 0.3s ease;
-  margin: 0 auto;
   display: block;
+  margin: 0 auto;
   position: relative;
-  overflow: hidden;
+  transition: transform 0.15s;
+  animation: glitchBtnPulse 2.5s ease-in-out infinite;
 }
 
-.big-pulse-button:not(:disabled) {
-  animation: pulse 2s infinite;
+.glitch-btn-main::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 1px solid #00d4ff1a;
+  animation: glitchBtnRing 2.5s ease-in-out infinite;
 }
 
-.big-pulse-button:hover:not(:disabled) {
-  transform: scale(1.05);
-  box-shadow: 
-    0 0 30px #00d4ff,
-    0 0 60px #00d4ff;
+@keyframes glitchBtnPulse {
+  0%, 100% { box-shadow: 0 0 20px #00d4ff44, 0 0 40px #00d4ff1a; }
+  50%       { box-shadow: 0 0 36px #00d4ff88, 0 0 72px #00d4ff33; }
 }
 
-.big-pulse-button:active:not(:disabled) {
-  transform: scale(0.95);
+@keyframes glitchBtnRing {
+  0%, 100% { transform: scale(1);    opacity: 0.6; }
+  50%       { transform: scale(1.1); opacity: 0.1; }
 }
 
-@keyframes pulse {
-  0%, 100% {
-    box-shadow: 0 0 20px #00d4ff;
-  }
-  50% {
-    box-shadow: 
-      0 0 40px #00d4ff,
-      0 0 60px #00d4ff;
-  }
+.glitch-btn-main:hover:not(:disabled) {
+  transform: scale(1.04);
+  box-shadow: 0 0 48px #00d4ff88, 0 0 80px #00d4ff44;
 }
 
-/* === AUTO MODE SWITCH === */
+.glitch-btn-main:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.glitch-btn-main.cooling {
+  border-color: #ff0055;
+  color: #ff0055;
+  animation: coolingPulse 1s ease-in-out infinite;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@keyframes coolingPulse {
+  0%, 100% { box-shadow: 0 0 12px #ff005533; }
+  50%       { box-shadow: 0 0 28px #ff005577; }
+}
+
+/* ── AUTO MODE SWITCH ────────────────────────────────────────── */
 .auto-switch {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 15px;
+  gap: 14px;
   margin-top: 20px;
 }
 
 .switch {
   position: relative;
   display: inline-block;
-  width: 50px;
-  height: 28px;
+  width: 48px;
+  height: 26px;
+  /* reset global label styles */
+  margin-top: 0;
+  margin-bottom: 0;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  color: inherit;
 }
 
 .switch input {
@@ -255,61 +505,48 @@ select:focus {
 .slider {
   position: absolute;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #333;
-  transition: 0.4s;
-  border-radius: 34px;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  transition: 0.3s;
+  border-radius: 26px;
 }
 
 .slider:before {
   position: absolute;
-  content: "";
-  height: 20px;
-  width: 20px;
-  left: 4px;
-  bottom: 4px;
-  background-color: white;
-  transition: 0.4s;
+  content: '';
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: #444;
+  transition: 0.3s;
   border-radius: 50%;
 }
 
 input:checked + .slider {
-  background-color: #00d4ff;
-  box-shadow: 0 0 10px #00d4ff;
+  background: #00d4ff18;
+  border-color: #00d4ff;
+  box-shadow: 0 0 8px #00d4ff33;
 }
 
 input:checked + .slider:before {
   transform: translateX(22px);
+  background: #00d4ff;
+  box-shadow: 0 0 6px #00d4ff;
 }
 
-/* === RESPONSIVE === */
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
 @media (max-width: 600px) {
-  .card {
-    padding: 20px;
-  }
-  
-  .glitch-title {
-    font-size: 2.5rem;
-  }
-  
-  .flip-container {
-    height: 250px;
-  }
+  .card { padding: 20px; }
 
-  .front {
-    font-size: 2rem;
-  }
+  .glitch-title { font-size: 2.6rem; }
 
-  .back {
-    font-size: 1.1rem;
-  }
+  .hologram-text { font-size: 1.1rem; }
 
-  .big-pulse-button {
-    width: 160px;
-    height: 160px;
-    font-size: 1.5rem;
+  .glitch-btn-main {
+    width: 150px;
+    height: 150px;
+    font-size: 1.3rem;
   }
 }

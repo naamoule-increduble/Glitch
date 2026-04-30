@@ -10,17 +10,17 @@ const LANGUAGES = {
 const translations = {
   en: {
     appName: "GLITCH",
-    chooseGameLabel: "What game are you playing?",
-    chooseVibeLabel: "Vibe level:",
-    startGameBtn: "Boot System",
+    chooseGameLabel: "TARGET ACQUISITION",
+    chooseVibeLabel: "CALIBRATE THE DAMAGE",
+    startGameBtn: "BOOT SYSTEM",
     rulePlaceholder: "Waiting for command...",
     cardBackText: "GLITCH",
     autoModeActive: "AUTO: ON",
     autoModeInactive: "AUTO: OFF",
     recharging: "Recharging...",
-    scanBoxLabel: "Scan Game Box 📸",
-    scanRulebookLabel: "Scan Rulebook 📖",
-    gameInputPlaceholder: "Search a board game...",
+    scanBoxLabel: "[ OPTICAL OVERRIDE ] 📸",
+    scanRulebookLabel: "[ DEEP SCAN ] 📖",
+    gameInputPlaceholder: "> Enter game name..._",
     loadingKnowledge: "Reading game...",
     loadingText: "Analyzing...",
     loadingMore: "Loading more...",
@@ -1004,137 +1004,73 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
 
       <div ref={dropdownRef} style={{ position: 'relative', margin: '10px 0' }}>
-        <div style={{ position: 'relative' }}>
+        <div className="terminal-input-wrapper">
+          <span className="terminal-search-icon">🔍</span>
           <input
             type="text"
             placeholder={t.gameInputPlaceholder}
             value={searchTerm}
             onChange={e => handleSearchChange(e.target.value)}
             onFocus={() => { if (searchTerm.length > 1 && !selectedGame) setShowDropdown(true); }}
-            style={{
-              width: '100%',
-              padding: selectedGame ? '12px 36px 12px 12px' : '12px',
-              backgroundColor: '#222',
-              border: `1px solid ${selectedGame ? '#00ff88' : '#00d4ff'}`,
-              color: '#fff', borderRadius: '8px', fontSize: '1rem',
-              outline: 'none',
-              boxShadow: selectedGame ? '0 0 10px #00ff88' : 'none',
-              fontFamily: 'inherit'
-            }}
           />
-          {selectedGame && (
-            <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', pointerEvents: 'none' }}>
-              ✅
-            </span>
-          )}
+          {selectedGame && <span style={{ color: '#00ff88', fontSize: '0.9rem', flexShrink: 0 }}>▸</span>}
         </div>
 
         {showDropdown && searchTerm.length > 1 && !selectedGame && (
-          <ul style={{
-            position: 'absolute', top: '100%', left: 0, right: 0,
-            backgroundColor: '#111', border: '2px solid #ff0055',
-            borderRadius: '0 0 8px 8px', zIndex: 9999, maxHeight: 250,
-            overflowY: 'auto', listStyle: 'none', padding: 0, margin: 0
-          }}>
+          <ul className="bottom-sheet">
             {searchResults.map(game => (
               <li
                 key={`${game.source}_${game.id}`}
+                className="bottom-sheet-item"
                 onMouseDown={e => { e.preventDefault(); handleGameSelect(game); }}
-                style={{
-                  padding: '15px 14px', cursor: 'pointer', borderBottom: '1px solid #333',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  color: '#fff', fontSize: '1rem', backgroundColor: '#111'
-                }}
-                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1e1e1e'}
-                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#111'}
               >
                 <span>{game.name}</span>
-                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  {/* Library badge — these games have full built-in knowledge */}
-                  {game.source === 'library' && (
-                    <span style={{
-                      fontSize: '0.6rem', color: '#00ff88',
-                      border: '1px solid #00ff88', borderRadius: 3,
-                      padding: '1px 5px', letterSpacing: '0.05em'
-                    }}>BUILT-IN</span>
-                  )}
-                  {game.year && <span style={{ color: '#888', fontSize: '0.8rem' }}>{game.year}</span>}
-                </span>
+                {game.source === 'library' && <span className="built-in-badge">BUILT-IN</span>}
               </li>
             ))}
             {fetchStatus === 'Empty' && searchResults.length === 0 && (
-              <li style={{ padding: '15px 14px', color: '#888', fontSize: '0.9rem' }}>
-                No games found — try scanning a rulebook
+              <li className="bottom-sheet-item" style={{ color: '#444', cursor: 'default' }}>
+                No targets found — try a deep scan
               </li>
             )}
           </ul>
         )}
       </div>
 
-      {/* Selected game indicator */}
       {selectedGame && (
-        <div style={{ fontSize: '0.8rem', color: '#00ff88', marginBottom: 6 }}>
-          ✓ Knowledge ready
-        </div>
+        <div className="lock-indicator">▸ TARGET LOCKED: {selectedGame.name}</div>
       )}
 
-      {/* Confidence warnings */}
       {showWarning === 'low' && (
-        <div style={{
-          backgroundColor: 'rgba(255,165,0,0.1)', border: '1px solid #ffa500',
-          borderRadius: '8px', padding: '12px', margin: '10px 0',
-          color: '#ffa500', textAlign: 'center', fontSize: '0.9rem'
-        }}>
-          {t.lowConfidenceWarning}
-        </div>
+        <div className="warning-box warning-low">{t.lowConfidenceWarning}</div>
       )}
       {showWarning === 'none' && (
-        <div style={{
-          backgroundColor: 'rgba(255,0,85,0.1)', border: '1px solid #ff0055',
-          borderRadius: '8px', padding: '12px', margin: '10px 0',
-          color: '#ff0055', textAlign: 'center', fontSize: '0.9rem'
-        }}>
-          {t.noKnowledgeWarning}
-        </div>
+        <div className="warning-box warning-none">{t.noKnowledgeWarning}</div>
       )}
 
-      {/* Image uploads */}
       <div style={{ display: 'flex', gap: '10px', marginTop: 15 }}>
-        {/* Box image: visual identification only */}
         <div style={{ flex: 1 }}>
           {boxImageData ? (
-            <div style={{ position: 'relative' }}>
-              <img src={boxImageData} alt="box"
-                style={{ width: '100%', height: 72, objectFit: 'cover', borderRadius: 8, border: '2px solid #00d4ff' }} />
+            <div className="cyber-thumbnail">
+              <img src={boxImageData} alt="box" />
+              <div className="scan-laser" />
               <button onClick={removeBoxImage} style={removeStyle}>×</button>
             </div>
           ) : (
-            <button
-              onClick={() => boxFileInputRef.current?.click()}
-              style={uploadBtnStyle('#00d4ff')}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
+            <button onClick={() => boxFileInputRef.current?.click()} className="upload-btn cyan">
               {t.scanBoxLabel}
             </button>
           )}
         </div>
-
-        {/* Rulebook image: growth path for games not in the library */}
         <div style={{ flex: 1 }}>
           {rulebookImageData ? (
-            <div style={{ position: 'relative' }}>
-              <img src={rulebookImageData} alt="rulebook"
-                style={{ width: '100%', height: 72, objectFit: 'cover', borderRadius: 8, border: '2px solid #ff9500' }} />
+            <div className="cyber-thumbnail">
+              <img src={rulebookImageData} alt="rulebook" />
+              <div className="scan-laser" />
               <button onClick={removeRulebookImage} style={removeStyle}>×</button>
             </div>
           ) : (
-            <button
-              onClick={() => rulebookFileInputRef.current?.click()}
-              style={uploadBtnStyle('#ff9500')}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,149,0,0.1)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
+            <button onClick={() => rulebookFileInputRef.current?.click()} className="upload-btn orange">
               {t.scanRulebookLabel}
             </button>
           )}
@@ -1154,7 +1090,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       </select>
 
       <button
-        className="neon-btn"
+        className={`neon-btn${canStart ? ' pulse-active' : ''}`}
         onClick={startGame}
         disabled={!canStart}
         style={{ opacity: canStart ? 1 : 0.5, marginTop: 20 }}
@@ -1168,35 +1104,20 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
   const renderGame = () => (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <button onClick={exitGame}
-          style={{ background: 'none', border: 'none', color: '#00d4ff', fontSize: '1.5rem', cursor: 'pointer', padding: 5 }}>
-          🔙
-        </button>
-        <div style={{ color: '#aaa', fontSize: '0.9rem' }}>
-          {gameKnowledge.gameName || selectedGame?.name || searchTerm
-            || (boxImageData ? t.scannedGame : '')}
-        </div>
+        <button onClick={exitGame} className="reboot-btn">[ SYSTEM REBOOT ]</button>
+        <div className="vibe-indicator">[ PROTOCOL: {vibeKey.toUpperCase()} ]</div>
       </div>
 
-      <div className="flip-container">
-        <div className={`flipper ${isFlipped ? 'flip-active' : ''}`}>
-          <div className="front">{t.cardBackText}</div>
-          <div className="back">{currentRule || t.rulePlaceholder}</div>
-        </div>
+      <div className="hologram-display">
+        <div className="hologram-text">{currentRule || t.rulePlaceholder}</div>
+        <div className="stability-gauge"></div>
       </div>
 
       {!isAutoMode && (
         <button
-          className="big-pulse-button"
+          className={`glitch-btn-main${isCoolingDown ? ' cooling' : ''}`}
           onClick={pullNextRule}
           disabled={isCoolingDown}
-          style={{
-            borderColor: isCoolingDown ? '#ff0055' : '#00d4ff',
-            color: isCoolingDown ? '#ff0055' : '#fff',
-            boxShadow: isCoolingDown ? '0 0 15px #ff0055' : '0 0 20px #00d4ff',
-            opacity: isCoolingDown ? 0.7 : 1,
-            cursor: isCoolingDown ? 'not-allowed' : 'pointer'
-          }}
         >
           {isCoolingDown ? t.recharging : 'GLITCH'}
         </button>
@@ -1205,7 +1126,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       <div style={{ height: 30 }} />
 
       <div className="auto-switch">
-        <span style={{ color: isAutoMode ? '#00d4ff' : '#555', fontWeight: 'bold' }}>
+        <span style={{ color: isAutoMode ? '#00d4ff' : '#555', fontWeight: 'bold', fontSize: '0.8rem', letterSpacing: '0.1em' }}>
           {isAutoMode ? t.autoModeActive : t.autoModeInactive}
         </span>
         <label className="switch">
@@ -1215,7 +1136,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       </div>
 
       {isAutoMode && (
-        <div style={{ color: '#555', fontSize: '0.8rem', marginTop: 10, textAlign: 'center' }}>
+        <div style={{ color: '#555', fontSize: '0.8rem', marginTop: 10, textAlign: 'center', letterSpacing: '0.05em' }}>
           {t.autoModeDesc}
         </div>
       )}
