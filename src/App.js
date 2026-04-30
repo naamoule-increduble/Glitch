@@ -268,14 +268,15 @@ function App() {
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
         osc.start(); osc.stop(ctx.currentTime + 0.05);
       } else if (type === 'glitch') {
-        // High-tech cyber scramble / Zap
+        // Rapid Frequency Scramble (The True Glitch)
         osc.type = 'square';
-        osc.frequency.setValueAtTime(400, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(2400, ctx.currentTime + 0.1);
-        osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.25);
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-        osc.start(); osc.stop(ctx.currentTime + 0.25);
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.setValueAtTime(1500, ctx.currentTime + 0.05);
+        osc.frequency.setValueAtTime(300, ctx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(2000, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        osc.start(); osc.stop(ctx.currentTime + 0.2);
       }
     } catch (e) { console.log('Audio error', e); }
   };
