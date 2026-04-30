@@ -260,7 +260,7 @@ function App() {
       osc.connect(gain);
       gain.connect(ctx.destination);
       if (type === 'hover' || type === 'click') {
-        // Sharp digital blip
+        // Sharp digital interface blip
         osc.type = 'square';
         osc.frequency.setValueAtTime(1800, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.05);
@@ -268,15 +268,19 @@ function App() {
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
         osc.start(); osc.stop(ctx.currentTime + 0.05);
       } else if (type === 'glitch') {
-        // Rapid Frequency Scramble (The True Glitch)
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(800, ctx.currentTime);
-        osc.frequency.setValueAtTime(1500, ctx.currentTime + 0.05);
-        osc.frequency.setValueAtTime(300, ctx.currentTime + 0.1);
-        osc.frequency.setValueAtTime(2000, ctx.currentTime + 0.15);
+        // Electric Zap / Neon Flicker (Zz-z-z-zap!)
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(3000, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.15);
         gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-        osc.start(); osc.stop(ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.01, ctx.currentTime + 0.02);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.04);
+        gain.gain.setValueAtTime(0.01, ctx.currentTime + 0.06);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.01, ctx.currentTime + 0.10);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.start(); osc.stop(ctx.currentTime + 0.25);
       }
     } catch (e) { console.log('Audio error', e); }
   };
