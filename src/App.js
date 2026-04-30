@@ -260,7 +260,6 @@ function App() {
       osc.connect(gain);
       gain.connect(ctx.destination);
       if (type === 'hover' || type === 'click') {
-        // Sharp digital interface blip
         osc.type = 'square';
         osc.frequency.setValueAtTime(1800, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.05);
@@ -268,19 +267,16 @@ function App() {
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
         osc.start(); osc.stop(ctx.currentTime + 0.05);
       } else if (type === 'glitch') {
-        // Electric Zap / Neon Flicker (Zz-z-z-zap!)
+        // High-voltage electrical spark (randomized high-frequency jitter)
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(3000, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.setValueAtTime(0.01, ctx.currentTime + 0.02);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.04);
-        gain.gain.setValueAtTime(0.01, ctx.currentTime + 0.06);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.08);
-        gain.gain.setValueAtTime(0.01, ctx.currentTime + 0.10);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.12);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-        osc.start(); osc.stop(ctx.currentTime + 0.25);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        let time = ctx.currentTime;
+        for (let i = 0; i < 15; i++) {
+          osc.frequency.setValueAtTime(2000 + Math.random() * 3000, time);
+          time += 0.015;
+        }
+        osc.start(); osc.stop(ctx.currentTime + 0.2);
       }
     } catch (e) { console.log('Audio error', e); }
   };
