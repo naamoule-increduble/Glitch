@@ -13,7 +13,7 @@ const translations = {
     chooseGameLabel: "TARGET ACQUISITION",
     chooseVibeLabel: "CALIBRATE THE DAMAGE",
     startGameBtn: "BOOT SYSTEM",
-    rulePlaceholder: "Waiting for command...",
+    rulePlaceholder: "> SYSTEM PRIMED. PRESS GLITCH.",
     cardBackText: "GLITCH",
     autoModeActive: "AUTO: ON",
     autoModeInactive: "AUTO: OFF",
@@ -999,7 +999,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
   // ─── RENDER HOME ──────────────────────────────────────────────────────────
   const renderHome = () => (
     <div className="card">
-      <h1 className="glitch-title">{t.appName}</h1>
+      <h1 className="glitch-title" data-text={t.appName}>{t.appName}</h1>
 
       <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
 
@@ -1048,33 +1048,18 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
         <div className="warning-box warning-none">{t.noKnowledgeWarning}</div>
       )}
 
-      <div style={{ display: 'flex', gap: '10px', marginTop: 15 }}>
-        <div style={{ flex: 1 }}>
-          {boxImageData ? (
-            <div className="cyber-thumbnail">
-              <img src={boxImageData} alt="box" />
-              <div className="scan-laser" />
-              <button onClick={removeBoxImage} style={removeStyle}>×</button>
-            </div>
-          ) : (
-            <button onClick={() => boxFileInputRef.current?.click()} className="upload-btn cyan">
-              {t.scanBoxLabel}
-            </button>
-          )}
-        </div>
-        <div style={{ flex: 1 }}>
-          {rulebookImageData ? (
-            <div className="cyber-thumbnail">
-              <img src={rulebookImageData} alt="rulebook" />
-              <div className="scan-laser" />
-              <button onClick={removeRulebookImage} style={removeStyle}>×</button>
-            </div>
-          ) : (
-            <button onClick={() => rulebookFileInputRef.current?.click()} className="upload-btn orange">
-              {t.scanRulebookLabel}
-            </button>
-          )}
-        </div>
+      <div style={{ marginTop: 15 }}>
+        {boxImageData ? (
+          <div className="cyber-thumbnail">
+            <img src={boxImageData} alt="box" />
+            <div className="scan-laser" />
+            <button onClick={removeBoxImage} style={removeStyle}>×</button>
+          </div>
+        ) : (
+          <button onClick={() => boxFileInputRef.current?.click()} className="cyber-btn-secondary">
+            {t.scanBoxLabel}
+          </button>
+        )}
       </div>
 
       <input type="file" ref={boxFileInputRef} style={{ display: 'none' }}
@@ -1101,50 +1086,57 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
   );
 
   // ─── RENDER GAME ──────────────────────────────────────────────────────────
+  // ─── RENDER GAME ──────────────────────────────────────────────────────────
   const renderGame = () => (
-    <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <button onClick={exitGame} className="reboot-btn">[ SYSTEM REBOOT ]</button>
-        <div className="vibe-indicator">[ PROTOCOL: {vibeKey.toUpperCase()} ]</div>
+    <div className="card game-screen-layout">
+
+      {/* Top Bar: Navigation & Status */}
+      <div className="game-top-bar">
+        <button className="cyber-btn-small error" onClick={exitGame}>
+          [ REBOOT ]
+        </button>
+        <div className="target-name">TARGET: {gameKnowledge.gameName || selectedGame?.name || searchTerm || 'UNKNOWN'}</div>
+        <div className="protocol-badge">
+          PROTOCOL: {vibeKey.toUpperCase()}
+        </div>
       </div>
 
+      {/* Center: The Hologram */}
       <div className="hologram-display">
         <div className="hologram-text">{currentRule || t.rulePlaceholder}</div>
         <div className="stability-gauge"></div>
       </div>
 
-      {!isAutoMode && (
-        <button
-          className={`glitch-btn-main${isCoolingDown ? ' cooling' : ''}`}
-          onClick={pullNextRule}
-          disabled={isCoolingDown}
-        >
-          {isCoolingDown ? t.recharging : 'GLITCH'}
-        </button>
-      )}
+      {/* Bottom: Main Controls */}
+      <div className="game-bottom-controls">
+        {!isAutoMode && (
+          <button
+            className={`glitch-btn-massive ${isCoolingDown ? 'cooling' : ''}`}
+            onClick={pullNextRule}
+            disabled={isCoolingDown}
+          >
+            {isCoolingDown ? '[ REBOOTING ]' : 'G L I T C H'}
+          </button>
+        )}
 
-      <div style={{ height: 30 }} />
-
-      <div className="auto-switch">
-        <span style={{ color: isAutoMode ? '#00d4ff' : '#555', fontWeight: 'bold', fontSize: '0.8rem', letterSpacing: '0.1em' }}>
-          {isAutoMode ? t.autoModeActive : t.autoModeInactive}
-        </span>
-        <label className="switch">
-          <input type="checkbox" checked={isAutoMode} onChange={e => setIsAutoMode(e.target.checked)} />
-          <span className="slider" />
-        </label>
+        {/* Auto Mode Switch */}
+        <div className="auto-switch-container">
+          <span className={isAutoMode ? 'auto-active-text' : ''}>
+            {isAutoMode ? t.autoModeActive : t.autoModeInactive}
+          </span>
+          <label className="cyber-switch">
+            <input type="checkbox" checked={isAutoMode} onChange={e => setIsAutoMode(e.target.checked)} />
+            <span className="slider"></span>
+          </label>
+        </div>
       </div>
 
-      {isAutoMode && (
-        <div style={{ color: '#555', fontSize: '0.8rem', marginTop: 10, textAlign: 'center', letterSpacing: '0.05em' }}>
-          {t.autoModeDesc}
-        </div>
-      )}
     </div>
   );
 
   return (
     <div className="app-container" dir={langConfig.dir} lang={langConfig.code}>
+      <div className="scanlines"></div>
       {screen === 'home' ? renderHome() : renderGame()}
     </div>
   );
