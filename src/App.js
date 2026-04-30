@@ -504,23 +504,23 @@ Constraints:
       .trim();
 
     // Each vibe has: a tone description, an example style, and an anti-pattern to avoid.
-    // Chaos is deliberately amplified — mild/safe twists are called out explicitly.
-    // Family Party replaces Silly — still G-rated but more energetic and physical.
+    // Chaos = mechanic inversions. Drinking = punchy social triggers. Family Party = funny table moments.
+    // Family Party is explicitly NOT Chaos — the contrast must be clear to the model.
     const VIBES = {
       chaotic: {
-        tone: 'TOTAL CHAOS. Invert, reverse, or steal. The twist should feel wrong, surprising, or absurd.',
-        example: '"Roll dice? The player to your left moves instead." | "Pay rent? The owner pays YOU." | "Draw a card? Discard one from your hand first."',
-        avoid: 'Do NOT write safe or mild twists. Chaos means the rule actively breaks or inverts what was about to happen.',
+        tone: 'TOTAL CHAOS. Invert, reverse, or steal game mechanics. The twist must feel wrong, surprising, or absurd — like the game broke itself.',
+        example: '"Roll dice? The player to your left moves instead." | "Pay rent? The owner pays YOU." | "Draw a card? Discard one from your hand first." | "Your turn? Skip it and take someone else\'s."',
+        avoid: 'Do NOT write safe or mild twists. Chaos means the rule actively breaks or inverts what was about to happen. A rule that just adds a funny moment is NOT chaos.',
       },
       drinking: {
-        tone: 'Party drinking game with attitude. Every twist triggers a drink. Keep it punchy, social, and fun — natural spoken rhythm, slightly mischievous.',
-        example: '"Freeze? Bottoms up." | "Bust on a duplicate? Two sips and pass the shame." | "Someone skips you? They drink, not you." | "Reverse? Everyone drinks, then swap hands."',
-        avoid: 'Do NOT write flat instructions like "the player drinks" or "take a drink." Make it social and punchy — use bottoms up, two sips, everyone drinks, drink and stay.',
+        tone: 'Party drinking game with sharp social energy. Every rule makes someone drink. Sound like a party trigger card — punchy, mischievous, and spoken out loud at a table.',
+        example: '"Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Draw Two? Drink before drawing." | "Wrong guess? Drink and keep talking." | "Reverse? Everyone drinks, then swap hands." | "Wild card? Pick a drinker."',
+        avoid: 'NEVER write "the player must drink", "the frozen player finishes their drink", or "take a drink." Always say WHO drinks and add social sting — bottoms up, two sips, everyone drinks, pick a drinker, finish the glass.',
       },
       funny: {
-        tone: 'Family party energy — big reactions, silly physical challenges, playful dares. Safe for all ages but genuinely loud and fun.',
-        example: '"Roll doubles? Strike a superhero pose until your next turn." | "Someone blocks you? Point at them and boo loudly." | "Lose a turn? Narrate your suffering dramatically."',
-        avoid: 'Do NOT write generic or flat twists. Every rule should cause a reaction — a sound, a pose, a groan, or a dare — from the table.',
+        tone: 'Family Party — NOT chaos, NOT mechanic inversions. Create funny social moments: silly voices, poses, cheers, seat swaps, compliments, dramatic reactions. Safe for all ages, loud for the table.',
+        example: '"Reverse? Everyone swaps seats." | "Skip? Compliment the next player first." | "Wild card? Pick a color in opera voice." | "Pass Go? Give a victory speech." | "Freeze? Strike a statue pose." | "Last card? Announce it in a royal accent."',
+        avoid: 'Do NOT invert or break game rules — that is Chaos, not Family Party. Do NOT write punishment or generic twists. Family Party = a funny social action: a voice, a pose, a swap, or a dare.',
       },
     };
 
@@ -576,8 +576,12 @@ AVOID: ${vibe.avoid}
 RULES FOR WRITING RULES:
 1. Format: [trigger] + [twist]. Max 10 words total.
 2. Trigger must be a real game moment (from the trigger list above if provided).
-3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — punchy and social, not flat' : 'a silly physical challenge or playful social dare'}.
-4. NEVER start a rule with "First", "Initial", "Opening", or "First time". Drop the stage label — write the trigger itself. ✗ "First roll? ..." → ✓ "Roll dice? ..."
+3. ${vibeKey === 'chaotic'
+  ? 'Twist MUST be a mechanic inversion or game-breaking surprise — not just a funny moment.'
+  : vibeKey === 'drinking'
+  ? 'Twist MUST specify who drinks and add social sting. Use: "Bottoms up", "Two sips", "Everyone drinks", "Pick a drinker", "Drink then [action]". NEVER write "the player drinks" or "take a drink".'
+  : 'Twist MUST be a funny social action: a pose, a voice, a swap, a dare, or a compliment. Do NOT invert game mechanics — that is Chaos, not Family Party.'}
+4. NEVER start a rule with "First", "Initial", "Opening", or "First time". Drop the stage label. ✗ "First roll? ..." → ✓ "Roll? ..."
 5. Translate any non-${outputLang} game terms into ${outputLang} in your output.
 6. No emojis. No markdown. No explanations.
 7. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
@@ -676,6 +680,9 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
       const tw = twist.trim().replace(/[.]+$/, '');
       return `${t}? ${tw.charAt(0).toUpperCase() + tw.slice(1)}.`;
     });
+    // Strip stage-label prefixes that leak through from early-game hooks.
+    // "First freeze?" → "Freeze?" | "First time passing Go?" → "Passing Go?"
+    r = r.replace(/^(?:first time |first |initial |opening )([a-z])/i, (_, char) => char.toUpperCase());
     return r.trim();
   };
 
@@ -714,10 +721,10 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   const buildFallbackPrompt = (knowledge, vibeKey) => {
     const { gameName, vocabulary, mutableHooks } = knowledge;
     const vibeInstruction = vibeKey === 'chaotic'
-      ? 'Chaos vibe: invert or break the normal rule. "Roll dice? Opponent moves instead." | "Pay? Owner pays you."'
+      ? 'CHAOS: invert or break the game mechanic. "Roll dice? Opponent moves." | "Pay rent? Owner pays you." | "Draw a card? Discard one first."'
       : vibeKey === 'drinking'
-      ? 'Drinking vibe: punchy and social. "Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Skip? They drink, not you."'
-      : 'Family Party vibe: big reactions, silly physical challenges. "Blocked? Point and boo." | "Lose a turn? Narrate it dramatically."';
+      ? 'DRINKING: punchy party triggers. Say WHO drinks and add social sting. "Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Skip? They drink, not you." | "Wild card? Pick a drinker." NEVER write "take a drink" or "the player drinks".'
+      : 'FAMILY PARTY (NOT chaos): funny social moments only. "Blocked? Point and boo." | "Skip? Compliment them first." | "Wild card? Opera voice." | "Freeze? Statue pose." No mechanic inversions.';
     const rawTerms = mutableHooks?.slice(0, 3) || vocabulary?.slice(0, 5) || [gameName];
     const sanitized = rawTerms.map(h => h.replace(/^first time /i,'').replace(/^first /i,'').replace(/^initial /i,'').replace(/^opening /i,'').trim());
     const terms = sanitized.join(', ') || gameName;
@@ -726,7 +733,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
 ⚠️ Write every word in ${outputLang} only. If game terms are in another language, translate them.
 ${vibeInstruction}
 Game moments to twist: ${terms}
-Format: [trigger]? [twist]. Max 10 words. No emojis. No stage labels (never start with "First" or "Initial"). ${outputLang} only.
+Format: [trigger]? [twist]. Max 10 words. No emojis. Never start with "First", "Initial", or "Opening". ${outputLang} only.
 Return ONLY: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
   };
 
