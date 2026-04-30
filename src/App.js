@@ -270,16 +270,16 @@ function App() {
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
         osc.start(); osc.stop(ctx.currentTime + 0.05);
       } else if (type === 'glitch') {
-        // High-voltage electrical spark (randomized high-frequency jitter)
+        // Longer high-voltage electrical spark (0.6 seconds)
         osc.type = 'sawtooth';
         gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
         let time = ctx.currentTime;
-        for (let i = 0; i < 15; i++) {
-          osc.frequency.setValueAtTime(2000 + Math.random() * 3000, time);
-          time += 0.015;
+        for (let i = 0; i < 30; i++) {
+          osc.frequency.setValueAtTime(1500 + Math.random() * 4000, time);
+          time += 0.02;
         }
-        osc.start(); osc.stop(ctx.currentTime + 0.2);
+        osc.start(); osc.stop(ctx.currentTime + 0.6);
       }
     } catch (e) { console.log('Audio error', e); }
   };
