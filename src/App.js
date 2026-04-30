@@ -159,13 +159,6 @@ const removeStyle = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-const uploadBtnStyle = (color) => ({
-  width: '100%', height: 72, padding: '10px',
-  background: 'transparent', border: `1px dashed ${color}`,
-  borderRadius: '8px', color, fontSize: '0.8rem', lineHeight: 1.3,
-  cursor: 'pointer', transition: 'background 0.3s ease',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
-});
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 function App() {
@@ -204,6 +197,7 @@ function App() {
   const [rulesQueue, setRulesQueue] = useState([]);
   const [initialLoading, setInitialLoading] = useState(false);
   const [isCoolingDown, setIsCoolingDown] = useState(false);
+  // eslint-disable-next-line no-unused-vars
   const [isFlipped, setIsFlipped] = useState(false);
   const [currentRule, setCurrentRule] = useState('');
 
@@ -981,10 +975,6 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
     if (boxFileInputRef.current) boxFileInputRef.current.value = '';
   };
 
-  const removeRulebookImage = () => {
-    setRulebookImageData(null); rulebookImageRef.current = null;
-    if (rulebookFileInputRef.current) rulebookFileInputRef.current.value = '';
-  };
 
   // ─── COMPUTED ─────────────────────────────────────────────────────────────
   // Boot is allowed for: confirmed library game OR any uploaded image.
@@ -997,6 +987,21 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
     : t.startGameBtn;
 
   // ─── RENDER HOME ──────────────────────────────────────────────────────────
+  const renderLoading = () => (
+    <div className="card terminal-loading-screen">
+      <div className="terminal-header">glitch_os_v3.1.4.exe</div>
+      <div className="terminal-body">
+        <p className="typing-text-1">&gt; INITIALIZING OVERRIDE...</p>
+        <p className="typing-text-2">&gt; BYPASSING FIREWALLS...</p>
+        <p className="typing-text-3">&gt; INJECTING [ {vibeKey.toUpperCase()} ] PROTOCOL...</p>
+        <p className="blinking-cursor">&gt; _</p>
+      </div>
+      <div className="cyber-progress-bar">
+        <div className="cyber-progress-fill"></div>
+      </div>
+    </div>
+  );
+
   const renderHome = () => (
     <div className="card">
       <h1 className="glitch-title" data-text={t.appName}>{t.appName}</h1>
@@ -1017,11 +1022,11 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
         </div>
 
         {showDropdown && searchTerm.length > 1 && !selectedGame && (
-          <ul className="bottom-sheet">
+          <ul className="cyber-dropdown">
             {searchResults.map(game => (
               <li
                 key={`${game.source}_${game.id}`}
-                className="bottom-sheet-item"
+                className="cyber-dropdown-item"
                 onMouseDown={e => { e.preventDefault(); handleGameSelect(game); }}
               >
                 <span>{game.name}</span>
@@ -1029,7 +1034,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
               </li>
             ))}
             {fetchStatus === 'Empty' && searchResults.length === 0 && (
-              <li className="bottom-sheet-item" style={{ color: '#444', cursor: 'default' }}>
+              <li className="cyber-dropdown-item" style={{ color: '#444', cursor: 'default' }}>
                 No targets found — try a deep scan
               </li>
             )}
@@ -1137,7 +1142,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
   return (
     <div className="app-container" dir={langConfig.dir} lang={langConfig.code}>
       <div className="scanlines"></div>
-      {screen === 'home' ? renderHome() : renderGame()}
+      {initialLoading ? renderLoading() : screen === 'home' ? renderHome() : renderGame()}
     </div>
   );
 }
