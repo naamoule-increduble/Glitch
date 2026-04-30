@@ -19,7 +19,7 @@ const translations = {
     autoModeInactive: "AUTO: OFF",
     recharging: "Recharging...",
     scanBoxLabel: "[ OPTICAL OVERRIDE ] 📸",
-    scanRulebookLabel: "[ DEEP SCAN ] 📖",
+    scanRulebookLabel: "[ UPLOAD RULEBOOK ] 📖",
     gameInputPlaceholder: "> Enter game name..._",
     loadingKnowledge: "Reading game...",
     loadingText: "Analyzing...",
@@ -30,8 +30,8 @@ const translations = {
     noKnowledgeWarning: "Game not in library — scan your rulebook so GLITCH can learn this game.",
     help: {
   title: "SYSTEM MANUAL",
-  step1: "1. TARGET: Search for a game or upload a game box image.",
-  step2: "2. DEEP SCAN: If the game is missing, upload a rulebook image.",
+  step1: "1. TARGET: Search for a game by name.",
+  step2: "2. RULEBOOK: If the game is not found, upload a rulebook photo.",
   step3: "3. CALIBRATE: Choose your vibe and hit GLITCH.",
   close: "ACKNOWLEDGE"
     },
@@ -202,7 +202,7 @@ function App() {
   // ── Image state — two separate upload paths ──
   // Box image = weak visual identification hint only.
   // Rulebook image = primary source for rich rule knowledge extraction.
-  const [boxImageData, setBoxImageData] = useState(null);
+  const [boxImageData] = useState(null);
   const [rulebookImageData, setRulebookImageData] = useState(null);
 
   // ── Session/game-loop state ──
@@ -219,7 +219,6 @@ function App() {
   const timerRef = useRef(null);
   const flipTimeoutRef = useRef(null);
   const cooldownTimerRef = useRef(null);
-  const boxFileInputRef = useRef(null);
   const rulebookFileInputRef = useRef(null);
   const dropdownRef = useRef(null);
   const queueRef = useRef([]);
@@ -1058,21 +1057,6 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
   }, [isAutoMode, screen, isCoolingDown, pullNextRule]);
 
   // ─── IMAGE HANDLERS ───────────────────────────────────────────────────────
-  const handleBoxImage = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setBoxImageData(reader.result);
-      boxImageRef.current = reader.result;
-      setSearchTerm(''); searchTermRef.current = '';
-      setSelectedGame(null); selectedGameRef.current = null;
-      setGameKnowledge(emptyKnowledge()); gameKnowledgeRef.current = emptyKnowledge();
-      setShowWarning(null);
-    };
-    reader.readAsDataURL(file);
-  };
-
   const handleRulebookImage = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1088,10 +1072,6 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
     reader.readAsDataURL(file);
   };
 
-  const removeBoxImage = () => {
-    setBoxImageData(null); boxImageRef.current = null;
-    if (boxFileInputRef.current) boxFileInputRef.current.value = '';
-  };
   const removeRulebookImage = () => {
     setRulebookImageData(null);
     rulebookImageRef.current = null;
@@ -1179,51 +1159,27 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
         <div className="warning-box warning-none">{t.noKnowledgeWarning}</div>
       )}
 
-      <div style={{ display: 'grid', gap: 12, marginTop: 15 }}>
-  <div>
-    {boxImageData ? (
-      <div className="cyber-thumbnail">
-        <img src={boxImageData} alt="box" />
-        <div className="scan-laser" />
-        <button onClick={removeBoxImage} style={removeStyle}>×</button>
+      <div style={{ marginTop: 15 }}>
+        {rulebookImageData ? (
+          <div className="cyber-thumbnail">
+            <img src={rulebookImageData} alt="rulebook" />
+            <div className="scan-laser" />
+            <button onClick={removeRulebookImage} style={removeStyle}>×</button>
+          </div>
+        ) : (
+          <button onClick={() => rulebookFileInputRef.current?.click()} className="cyber-btn-secondary">
+            {t.scanRulebookLabel}
+          </button>
+        )}
       </div>
-    ) : (
-      <button onClick={() => boxFileInputRef.current?.click()} className="cyber-btn-secondary">
-        {t.scanBoxLabel}
-      </button>
-    )}
-  </div>
 
-  <div>
-    {rulebookImageData ? (
-      <div className="cyber-thumbnail">
-        <img src={rulebookImageData} alt="rulebook" />
-        <div className="scan-laser" />
-        <button onClick={removeRulebookImage} style={removeStyle}>×</button>
-      </div>
-    ) : (
-      <button onClick={() => rulebookFileInputRef.current?.click()} className="cyber-btn-secondary">
-        {t.scanRulebookLabel}
-      </button>
-    )}
-  </div>
-</div>
-
-     <input
-  type="file"
-  ref={boxFileInputRef}
-  style={{ display: 'none' }}
-  accept="image/*"
-  onChange={handleBoxImage}
-/>
-
-<input
-  type="file"
-  ref={rulebookFileInputRef}
-  style={{ display: 'none' }}
-  accept="image/*,.jpg,.jpeg,.png,.webp,.heic"
-  onChange={handleRulebookImage}
-/>
+      <input
+        type="file"
+        ref={rulebookFileInputRef}
+        style={{ display: 'none' }}
+        accept="image/*,.jpg,.jpeg,.png,.webp,.heic"
+        onChange={handleRulebookImage}
+      />
 
       <label style={{ marginTop: 20 }}>{t.chooseVibeLabel}</label>
       <select value={vibeKey} onChange={e => setVibeKey(e.target.value)}>
