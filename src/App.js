@@ -28,6 +28,13 @@ const translations = {
     autoModeDesc: "System fires automatically every 45-90 seconds",
     lowConfidenceWarning: "Not enough game knowledge — upload the rulebook for sharper rules 📖",
     noKnowledgeWarning: "Game not in library — scan your rulebook so GLITCH can learn this game.",
+    help: {
+      title: "SYSTEM MANUAL",
+      step1: "1. TARGET: Search for a game or scan the box.",
+      step2: "2. CALIBRATE: Choose your vibe (Chaos, Drinks, Party).",
+      step3: "3. GLITCH: Hit the button to override the game's rules.",
+      close: "ACKNOWLEDGE"
+    },
     vibes: {
       chaotic: "Chaos 🔥",
       drinking: "Drinks 🍻",
@@ -175,6 +182,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
   const [fetchStatus, setFetchStatus] = useState('Idle');
 
@@ -234,6 +242,16 @@ function App() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  useEffect(() => {
+    const hasSeenHelp = localStorage.getItem('glitch_has_seen_help');
+    if (!hasSeenHelp) setShowHelp(true);
+  }, []);
+
+  const handleCloseHelp = () => {
+    localStorage.setItem('glitch_has_seen_help', 'true');
+    setShowHelp(false);
+  };
 
   const handleSearchChange = useCallback((value) => {
     console.log('[GLITCH] handleSearchChange:', value);
@@ -1020,6 +1038,9 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
 
   const renderHome = () => (
     <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+        <button className="cyber-btn-icon" onClick={() => setShowHelp(true)}>[ ? ]</button>
+      </div>
       <h1 className="glitch-title" data-text={t.appName}>{t.appName}</h1>
 
       <label style={{ marginTop: 20 }}>{t.chooseGameLabel}</label>
@@ -1103,6 +1124,22 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       >
         {startLabel}
       </button>
+
+      {showHelp && (
+        <div className="cyber-modal-overlay">
+          <div className="cyber-modal">
+            <h2 className="modal-title">{t.help.title}</h2>
+            <div className="modal-steps">
+              <p>{t.help.step1}</p>
+              <p>{t.help.step2}</p>
+              <p>{t.help.step3}</p>
+            </div>
+            <button className="neon-btn-secondary" onClick={handleCloseHelp}>
+              [ {t.help.close} ]
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
