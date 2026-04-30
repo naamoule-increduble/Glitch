@@ -474,6 +474,17 @@ Constraints:
       activeHooks = mutableHooks;
     }
 
+    // Strip stage-label prefixes from hooks before sending to the model.
+    // This prevents the model from outputting "First X? ..." literally.
+    // earlyGameHooks still influence WHICH hooks get priority — but the model
+    // never sees "first", "initial", or "opening" as part of the trigger text.
+    const sanitizeHook = (h) => h
+      .replace(/^first time /i, '')
+      .replace(/^first /i, '')
+      .replace(/^initial /i, '')
+      .replace(/^opening /i, '')
+      .trim();
+
     // Each vibe has: a tone description, an example style, and an anti-pattern to avoid.
     // Chaos is deliberately amplified — mild/safe twists are called out explicitly.
     // Family Party replaces Silly — still G-rated but more energetic and physical.
@@ -484,14 +495,14 @@ Constraints:
         avoid: 'Do NOT write safe or mild twists. Chaos means the rule actively breaks or inverts what was about to happen.',
       },
       drinking: {
-        tone: 'Party drinking game. Every twist makes someone drink. Be specific about WHO drinks and WHY.',
-        example: '"Land on someone\'s property? Drink instead of paying." | "Draw a bad card? Two drinks, pass it on."',
-        avoid: 'Do NOT just say "take a drink." Specify the exact trigger and who drinks.',
+        tone: 'Party drinking game with attitude. Every twist triggers a drink. Keep it punchy, social, and fun — natural spoken rhythm, slightly mischievous.',
+        example: '"Freeze? Bottoms up." | "Bust on a duplicate? Two sips and pass the shame." | "Someone skips you? They drink, not you." | "Reverse? Everyone drinks, then swap hands."',
+        avoid: 'Do NOT write flat instructions like "the player drinks" or "take a drink." Make it social and punchy — use bottoms up, two sips, everyone drinks, drink and stay.',
       },
       funny: {
-        tone: 'Family party energy — safe for all ages but genuinely fun. Physical comedy, silly voices, unexpected social challenges.',
-        example: '"Roll doubles? Do your best robot impression before moving." | "Lose a piece? Give it a dramatic name and eulogy." | "Take someone\'s card? Trade seats with them first."',
-        avoid: 'Do NOT write boring or generic twists. Every rule should make the table laugh or groan.',
+        tone: 'Family party energy — big reactions, silly physical challenges, playful dares. Safe for all ages but genuinely loud and fun.',
+        example: '"Roll doubles? Strike a superhero pose until your next turn." | "Someone blocks you? Point at them and boo loudly." | "Lose a turn? Narrate your suffering dramatically."',
+        avoid: 'Do NOT write generic or flat twists. Every rule should cause a reaction — a sound, a pose, a groan, or a dare — from the table.',
       },
     };
 
@@ -500,12 +511,14 @@ Constraints:
     // mutableHooks formatted as an explicit trigger list.
     // The instruction "MUST attach to one of these" prevents the model from
     // inventing triggers that happen at the wrong phase of the game.
+    // Hooks are sanitized to remove stage-label prefixes (first/initial/opening)
+    // so the model never outputs "First X? ..." literally in a rule.
     const hookLabel = isEarlyGame && earlyGameHooks?.length > 0
-      ? 'TRIGGER MOMENTS (★ = early-game priority)'
+      ? 'TRIGGER MOMENTS (★ = priority this session)'
       : 'TRIGGER MOMENTS';
     const earlySet = new Set(earlyGameHooks || []);
     const triggerBlock = activeHooks.length > 0
-      ? `${hookLabel} — pick from these real game moments:\n${activeHooks.map(h => `  ${earlySet.has(h) ? '★' : '•'} ${h}`).join('\n')}`
+      ? `${hookLabel} — pick from these real game moments:\n${activeHooks.map(h => `  ${earlySet.has(h) ? '★' : '•'} ${sanitizeHook(h)}`).join('\n')}`
       : '';
 
     const gameContext = hasRichKnowledge
@@ -544,11 +557,12 @@ AVOID: ${vibe.avoid}
 
 RULES FOR WRITING RULES:
 1. Format: [trigger] + [twist]. Max 10 words total.
-2. Trigger must be a real game moment (from the trigger list above if provided)
-3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — specify who and why' : 'silly, physical, or a fun social challenge'}
-4. Translate any non-${outputLang} game terms into ${outputLang} in your output.
-5. No emojis. No markdown. No explanations.
-6. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
+2. Trigger must be a real game moment (from the trigger list above if provided).
+3. Twist must be ${vibeKey === 'chaotic' ? 'surprising, disruptive, or an outright inversion' : vibeKey === 'drinking' ? 'tied to drinking — punchy and social, not flat' : 'a silly physical challenge or playful social dare'}.
+4. NEVER start a rule with "First", "Initial", "Opening", or "First time". Drop the stage label — write the trigger itself. ✗ "First roll? ..." → ✓ "Roll dice? ..."
+5. Translate any non-${outputLang} game terms into ${outputLang} in your output.
+6. No emojis. No markdown. No explanations.
+7. Return exactly ${batchSize} rules as a JSON array.${conservativeNote}${historyBlock}
 
 REMINDER: Output must be ${outputLang} only.
 Return ONLY: ["rule 1", "rule 2", ...]`;
@@ -682,17 +696,19 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   const buildFallbackPrompt = (knowledge, vibeKey) => {
     const { gameName, vocabulary, mutableHooks } = knowledge;
     const vibeInstruction = vibeKey === 'chaotic'
-      ? 'Chaos vibe: invert or break the normal rule. "Roll dice? Opponent moves instead."'
+      ? 'Chaos vibe: invert or break the normal rule. "Roll dice? Opponent moves instead." | "Pay? Owner pays you."'
       : vibeKey === 'drinking'
-      ? 'Drinking vibe: someone drinks. Say exactly who and why. "Draw a card? Take two sips."'
-      : 'Family Party vibe: physical or silly challenge. "Play Reverse? Everyone claps twice."';
-    const terms = (mutableHooks?.slice(0, 3).join(', ') || vocabulary?.slice(0, 5).join(', ') || gameName);
+      ? 'Drinking vibe: punchy and social. "Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Skip? They drink, not you."'
+      : 'Family Party vibe: big reactions, silly physical challenges. "Blocked? Point and boo." | "Lose a turn? Narrate it dramatically."';
+    const rawTerms = mutableHooks?.slice(0, 3) || vocabulary?.slice(0, 5) || [gameName];
+    const sanitized = rawTerms.map(h => h.replace(/^first time /i,'').replace(/^first /i,'').replace(/^initial /i,'').replace(/^opening /i,'').trim());
+    const terms = sanitized.join(', ') || gameName;
     const outputLang = langConfig.name;
     return `You are GLITCH. Write 5 temporary rule overlays for ${gameName}.
 ⚠️ Write every word in ${outputLang} only. If game terms are in another language, translate them.
 ${vibeInstruction}
 Game moments to twist: ${terms}
-Format: [trigger]? [twist]. Max 10 words. No emojis. No "X means Y". ${outputLang} only.
+Format: [trigger]? [twist]. Max 10 words. No emojis. No stage labels (never start with "First" or "Initial"). ${outputLang} only.
 Return ONLY: ["rule 1", "rule 2", "rule 3", "rule 4", "rule 5"]`;
   };
 
