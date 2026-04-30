@@ -183,6 +183,9 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [sfxEnabled, setSfxEnabled] = useState(true);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [selectedGame, setSelectedGame] = useState(null);
   const [fetchStatus, setFetchStatus] = useState('Idle');
 
@@ -248,8 +251,35 @@ function App() {
     if (!hasSeenHelp) setShowHelp(true);
   }, []);
 
+  const playCyberSound = (type) => {
+    if (!sfxEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      if (type === 'hover' || type === 'click') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.start(); osc.stop(ctx.currentTime + 0.1);
+      } else if (type === 'glitch') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.start(); osc.stop(ctx.currentTime + 0.3);
+      }
+    } catch (e) { console.log('Audio error', e); }
+  };
+
   const handleCloseHelp = () => {
     localStorage.setItem('glitch_has_seen_help', 'true');
+    playCyberSound('click');
     setShowHelp(false);
   };
 
@@ -922,24 +952,8 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
 
   // ─── RULE QUEUE MANAGEMENT ────────────────────────────────────────────────
   const triggerGlitchEffect = () => {
-    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (AudioContext) {
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(100, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.2);
-      }
-    } catch {}
+    if (hapticsEnabled && navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    playCyberSound('glitch');
   };
 
   const pullNextRule = useCallback(() => {
@@ -966,6 +980,7 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
       triggerGlitchEffect();
       setIsFlipped(true);
     }, 600);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCoolingDown, generateGlitchRulesBatch, t.loadingMore]);
 
   useEffect(() => {
@@ -1045,8 +1060,9 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
 
   const renderHome = () => (
     <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-        <button className="cyber-btn-icon" onClick={() => setShowHelp(true)}>[ ? ]</button>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginBottom: '10px' }}>
+        <button className="cyber-btn-icon" onClick={() => { playCyberSound('click'); setShowSettings(true); }}>[ SYS_CFG ]</button>
+        <button className="cyber-btn-icon" onClick={() => { playCyberSound('click'); setShowHelp(true); }}>[ ? ]</button>
       </div>
       <h1 className="glitch-title" data-text={t.appName}>{t.appName}</h1>
 
@@ -1143,6 +1159,38 @@ Return ONLY a JSON array: ["rule 1", "rule 2", ...]`;
             </div>
             <button className="neon-btn-secondary" onClick={handleCloseHelp}>
               [ {t.help.close} ]
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="cyber-modal-overlay">
+          <div className="cyber-modal settings-modal">
+            <h2 className="modal-title">SYS_CFG</h2>
+
+            <div className="settings-row">
+              <span>AUDIO [SFX]</span>
+              <label className="cyber-switch">
+                <input type="checkbox" checked={sfxEnabled} onChange={e => { setSfxEnabled(e.target.checked); playCyberSound('click'); }} />
+                <span className="slider"></span>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span>HAPTICS</span>
+              <label className="cyber-switch">
+                <input type="checkbox" checked={hapticsEnabled} onChange={e => { setHapticsEnabled(e.target.checked); playCyberSound('click'); }} />
+                <span className="slider"></span>
+              </label>
+            </div>
+
+            <div className="credits-box">
+              SYSTEM ARCHITECTS: <span className="highlight-name">INCREDIBLE US</span>
+            </div>
+
+            <button className="neon-btn-secondary" onClick={() => { playCyberSound('click'); setShowSettings(false); }}>
+              [ SAVE &amp; EXIT ]
             </button>
           </div>
         </div>
