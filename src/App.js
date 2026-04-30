@@ -147,6 +147,9 @@ const emptyKnowledge = () => ({
   coreElements: [],
   mutableHooks: [],
   earlyGameHooks: [],
+  globalGlitchHooks: [],   // round-level states overridable by INJECTED rules
+  revivalHooks: [],         // player states that can be reversed (busted/frozen/stopped)
+  overrideHooks: [],        // core mechanics that can be temporarily corrupted
   ruleSummary: '',
   rawRuleText: '',
   createdAt: null,
@@ -435,6 +438,9 @@ Constraints:
         coreElements: entry.coreElements || [],
         mutableHooks: entry.mutableHooks || [],
         earlyGameHooks: entry.earlyGameHooks || [],
+        globalGlitchHooks: entry.globalGlitchHooks || [],
+        revivalHooks: entry.revivalHooks || [],
+        overrideHooks: entry.overrideHooks || [],
         ruleSummary: entry.ruleSummary,
       };
       setGameKnowledge(knowledge);
@@ -511,7 +517,7 @@ Constraints:
   // phase-aware — rules must attach to a real moment, not invent new ones.
   // Language instruction ensures rules stay in the game's own language (e.g. Hebrew).
   const buildGlitchPrompt = (knowledge, vibeKey, history, batchSize = 10) => {
-    const { gameName, vocabulary, actions, coreElements, mutableHooks, earlyGameHooks, ruleSummary, mechanics, confidence, sourceLanguage } = knowledge;
+    const { gameName, vocabulary, actions, coreElements, mutableHooks, earlyGameHooks, ruleSummary, mechanics, confidence, sourceLanguage, globalGlitchHooks, revivalHooks, overrideHooks } = knowledge;
     const hasRichKnowledge = vocabulary.length > 0 || mutableHooks.length > 0;
 
     // Use earlyGameHooks as PRIORITY suggestions in the first few turns.
@@ -542,19 +548,19 @@ Constraints:
     // Family Party is explicitly NOT Chaos — the contrast must be clear to the model.
     const VIBES = {
       chaotic: {
-        tone: 'TOTAL CHAOS. Invert, reverse, or steal game mechanics. The twist must feel wrong, surprising, or absurd — like the game broke itself.',
-        example: '"Roll dice? The player to your left moves instead." | "Pay rent? The owner pays YOU." | "Draw a card? Discard one from your hand first." | "Your turn? Skip it and take someone else\'s."',
-        avoid: 'Do NOT write safe or mild twists. Chaos means the rule actively breaks or inverts what was about to happen. A rule that just adds a funny moment is NOT chaos.',
+        tone: 'TOTAL CHAOS. Write both REACTIVE and INJECTED rules. REACTIVE: invert, reverse, or steal game mechanics mid-event — the twist must feel wrong, like the game broke itself. INJECTED: temporarily rewrite the game state — revival of eliminated/busted/frozen/stopped players, rule overrides, mechanic corruption, global effects.',
+        example: 'REACTIVE: "Roll dice? Left player moves instead." | "Pay rent? Owner pays YOU." | "Draw a card? Discard one first." | "Your turn? Take someone else\'s."\nINJECTED: "Busted players return with one flip." | "Nobody banks points this round." | "Freeze cards fail until next GLITCH." | "Action cards hit everyone." | "Stopped already? Rejoin now." | "Duplicate numbers are safe this round."',
+        avoid: 'Do NOT write safe or mild twists. Do NOT only write reactive rules — at least HALF the batch must be INJECTED state-rewrites. Every rule must feel like the game broke itself or a law of play was suspended.',
       },
       drinking: {
-        tone: 'Party drinking game with sharp social energy. Every rule makes someone drink. Sound like a party trigger card — punchy, mischievous, and spoken out loud at a table.',
-        example: '"Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Draw Two? Drink before drawing." | "Wrong guess? Drink and keep talking." | "Reverse? Everyone drinks, then swap hands." | "Wild card? Pick a drinker."',
+        tone: 'Party drinking game with sharp social energy. Mostly REACTIVE (trigger → who drinks). You may add 1–2 INJECTED rules that rewrite who drinks or when.',
+        example: 'REACTIVE: "Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Draw Two? Drink before drawing." | "Wild card? Pick a drinker."\nINJECTED: "Anyone who already drank this round, drinks again now." | "This round, last player to drink picks the next."',
         avoid: 'NEVER write "the player must drink", "the frozen player finishes their drink", or "take a drink." Always say WHO drinks and add social sting — bottoms up, two sips, everyone drinks, pick a drinker, finish the glass.',
       },
       funny: {
-        tone: 'Family Party — NOT chaos, NOT mechanic inversions. Create funny social moments: silly voices, poses, cheers, seat swaps, compliments, dramatic reactions. Safe for all ages, loud for the table.',
-        example: '"Reverse? Everyone swaps seats." | "Skip? Compliment the next player first." | "Wild card? Pick a color in opera voice." | "Pass Go? Give a victory speech." | "Freeze? Strike a statue pose." | "Last card? Announce it in a royal accent."',
-        avoid: 'Do NOT invert or break game rules — that is Chaos, not Family Party. Do NOT write punishment or generic twists. Family Party = a funny social action: a voice, a pose, a swap, or a dare.',
+        tone: 'Family Party — NOT chaos, NOT mechanic inversions. Mostly REACTIVE funny social moments. You may add 1–2 INJECTED round-level rules that create table comedy.',
+        example: 'REACTIVE: "Reverse? Everyone swaps seats." | "Skip? Compliment the next player." | "Wild card? Pick a color in opera voice." | "Freeze? Strike a statue pose."\nINJECTED: "This round, everyone must stand to play." | "Until next GLITCH, winners must bow." | "Stopped players must cheer everyone else on."',
+        avoid: 'Do NOT invert or break game rules — that is Chaos, not Family Party. INJECTED rules should add a funny social layer, not break mechanics. Do NOT write punishment or generic twists.',
       },
     };
 
@@ -573,16 +579,26 @@ Constraints:
       ? `${hookLabel} — pick from these real game moments:\n${activeHooks.map(h => `  ${earlySet.has(h) ? '★' : '•'} ${sanitizeHook(h)}`).join('\n')}`
       : '';
 
+    // Optional game-state context for INJECTED rules — only present when library defines them.
+    const injectedParts = [];
+    if ((globalGlitchHooks || []).length > 0)
+      injectedParts.push(`ROUND STATES (can be overridden by INJECTED rules): ${globalGlitchHooks.join(' | ')}`);
+    if ((revivalHooks || []).length > 0)
+      injectedParts.push(`PLAYER STATES THAT CAN BE REVERSED: ${revivalHooks.join(' | ')}`);
+    if ((overrideHooks || []).length > 0)
+      injectedParts.push(`MECHANICS THAT CAN BE CORRUPTED: ${overrideHooks.join(' | ')}`);
+    const injectedContextBlock = injectedParts.length > 0 ? '\n' + injectedParts.join('\n') : '';
+
     const gameContext = hasRichKnowledge
       ? `GAME: ${gameName}
 HOW IT WORKS: ${ruleSummary}
 GAME TERMS (use these — not generic board game words): ${vocabulary.join(', ')}
 PLAYER ACTIONS: ${actions.slice(0, 8).join(' | ')}
 CORE ELEMENTS: ${coreElements.join(', ')}
-${triggerBlock}`
+${triggerBlock}${injectedContextBlock}`
       : `GAME: ${gameName}
 HOW IT WORKS: ${ruleSummary}
-KNOWN MECHANICS: ${mechanics.join(', ')}`;
+KNOWN MECHANICS: ${mechanics.join(', ')}${injectedContextBlock}`;
 
     const historyBlock = history.length > 0
       ? `\nALREADY USED — do not repeat:\n${history.slice(-15).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
@@ -608,13 +624,15 @@ EXAMPLE STYLE: ${vibe.example}
 AVOID: ${vibe.avoid}
 
 RULES FOR WRITING RULES:
-1. Format: [trigger] + [twist]. Max 10 words total.
-2. Trigger must be a real game moment (from the trigger list above if provided).
+1. TWO FORMATS ALLOWED:
+   REACTIVE: "[trigger]? [twist]." Max 10 words. (e.g. "Freeze? Bottoms up.")
+   INJECTED: Present-tense state-rewrite. Max 10 words. (e.g. "Busted players return with one flip." | "Nobody stops early this round.")
+2. REACTIVE: trigger must be a real game moment from the trigger list if provided. INJECTED: must affect the round, player status, or a core mechanic — no invented game terms.
 3. ${vibeKey === 'chaotic'
-  ? 'Twist MUST be a mechanic inversion or game-breaking surprise — not just a funny moment.'
+  ? 'CHAOS RATIO: at least HALF of this batch must be INJECTED rules. Injected chaos categories: override (a rule stops applying), reversal (a state flips), revival (busted/frozen/stopped players return), corruption (a mechanic breaks temporarily), global (action hits all players). REACTIVE chaos rules must still be mechanic inversions — not just funny moments.'
   : vibeKey === 'drinking'
   ? 'Twist MUST specify who drinks and add social sting. Use: "Bottoms up", "Two sips", "Everyone drinks", "Pick a drinker", "Drink then [action]". NEVER write "the player drinks" or "take a drink".'
-  : 'Twist MUST be a funny social action: a pose, a voice, a swap, a dare, or a compliment. Do NOT invert game mechanics — that is Chaos, not Family Party.'}
+  : 'REACTIVE twist must be a funny social action: a pose, a voice, a swap, a dare, or a compliment. INJECTED rules must add a social layer, not break mechanics. Do NOT invert game mechanics — that is Chaos, not Family Party.'}
 4. NEVER start a rule with "First", "Initial", "Opening", or "First time". Drop the stage label. ✗ "First roll? ..." → ✓ "Roll? ..."
 5. Translate any non-${outputLang} game terms into ${outputLang} in your output.
 6. No emojis. No markdown. No explanations.
@@ -755,7 +773,7 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
   const buildFallbackPrompt = (knowledge, vibeKey) => {
     const { gameName, vocabulary, mutableHooks } = knowledge;
     const vibeInstruction = vibeKey === 'chaotic'
-      ? 'CHAOS: invert or break the game mechanic. "Roll dice? Opponent moves." | "Pay rent? Owner pays you." | "Draw a card? Discard one first."'
+      ? 'CHAOS: mix REACTIVE and INJECTED rules. REACTIVE (invert mechanics): "Roll dice? Opponent moves." | "Pay rent? Owner pays you." INJECTED (rewrite state): "Busted players return." | "Nobody banks points this round." | "Frozen player is released." | "Duplicate cards are safe this round." At least half must be INJECTED.'
       : vibeKey === 'drinking'
       ? 'DRINKING: punchy party triggers. Say WHO drinks and add social sting. "Freeze? Bottoms up." | "Bust? Two sips, pass the shame." | "Skip? They drink, not you." | "Wild card? Pick a drinker." NEVER write "take a drink" or "the player drinks".'
       : 'FAMILY PARTY (NOT chaos): funny social moments only. "Blocked? Point and boo." | "Skip? Compliment them first." | "Wild card? Opera voice." | "Freeze? Statue pose." No mechanic inversions.';

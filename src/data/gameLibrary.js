@@ -51,6 +51,9 @@ export const GAME_LIBRARY = [
     coreElements: ['numbered cards', 'action cards', 'Wild cards', 'draw pile', 'discard pile', 'four colors'],
     mutableHooks: ['playing Draw Two', 'playing Skip', 'playing Reverse', 'playing Wild Draw Four', 'calling UNO', 'being forced to draw', 'color changes'],
     earlyGameHooks: ['dealing the initial hands', 'first card played to start the discard pile', 'first player to take their first turn'],
+    globalGlitchHooks: ['direction of play', 'draw penalties', 'color matching rule'],
+    revivalHooks: ['player forced to skip their turn', 'player who drew cards this turn'],
+    overrideHooks: ['Skip card effect', 'Reverse direction', 'Draw Two penalty', 'Wild color choice'],
     ruleSummary: 'Players race to empty their hand by matching cards by color or number, using action cards to disrupt opponents, and must call UNO when down to one card.',
   },
   {
@@ -552,6 +555,9 @@ export const GAME_LIBRARY = [
     coreElements: ['number cards', 'action cards', 'round score', 'dealer', 'banked points'],
     mutableHooks: ['choosing to flip again', 'busting on a duplicate', 'being frozen', 'using second chance', 'doubling score', 'targeting another player'],
     earlyGameHooks: ['first flip decision', 'first action card', 'first freeze', 'stopping early to bank points'],
+    globalGlitchHooks: ['banking points this round', 'bust rule (duplicate = out)', 'freeze effect', 'round scoring'],
+    revivalHooks: ['busted player (out this round)', 'frozen player', 'player who already banked'],
+    overrideHooks: ['duplicate card bust rule', 'x2 score doubling', 'freeze card effect'],
     ruleSummary: 'Players flip cards one by one, trying not to reveal the same number twice. They can stop to bank points or keep risking for a bigger round.',
   },
   {
