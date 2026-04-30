@@ -541,24 +541,23 @@ Constraints:
       .replace(/^opening /i, '')
       .trim();
 
-    // Vibes define behavioral defaults, not just mood.
-    // Each vibe specifies what it does to the round, what patterns to prefer, and what to reject.
-    // vibe.example and vibe.avoid are injected into the prompt — they were previously unused.
+    // Vibes define behavioral defaults — what each mode does to the round.
+    // tone, example, and avoid are all injected into the prompt.
     const VIBES = {
       chaotic: {
-        tone: 'TOTAL CHAOS. Rewrite the current round aggressively. Default behaviors: corrupt normal rules, override mechanics, reverse or steal outcomes, revive eliminated players or states, force continuation, apply global effects. At least 70% of rules must be ACTIVE — applying RIGHT NOW, not waiting for a trigger.',
-        example: '"Nobody banks points this round." | "Action cards hit everyone." | "Anyone eliminated is back in." | "All special cards score double now." | "Current card type fails until next GLITCH." | "Everyone plays open-hand." | "All skips become reverses." | "The current leader gives away their strongest card."',
-        avoid: 'Reject any rule a player would accept calmly. Reject mild, balanced, or reasonable twists. Reject trigger-questions about rare or specific events ("Played a King?", "Open TAKI?", "Passed Go?"). Reject any rule that does not invert, corrupt, revive, or override something real. Chaos must feel sudden, unfair, and disruptive.',
+        tone: 'TOTAL CHAOS. Rewrite the current round. Default behaviors: corrupt card behavior, block safe endings, spread effects to everyone, reverse or distort action-card logic, force continuation, revive players or states, override normal rules. Rules must feel disruptive, unfair, or game-breaking — but still tied to real game mechanics.',
+        example: '"This round, + cards hit everyone." | "Nobody ends on an action card." | "Color changes fail this round." | "Skip cards bounce back." | "Reverse changes nothing." | "Anyone eliminated is back in." | "Everyone plays open-hand." | "All blocked players draw one extra."',
+        avoid: 'Reject any rule a player would accept calmly. Reject mild or balanced effects. Reject trigger-questions about rare or unseen events ("Played a King?", "Open TAKI?", "Passed Go?", "Super TAKI played?"). Reject rules that do not corrupt, override, revive, or distort something real. Chaos must feel sudden, unfair, and disruptive.',
       },
       drinking: {
-        tone: 'PARTY DRINKING. Add active drinking modifiers that start RIGHT NOW. Default: round-wide effects where it is immediately clear who drinks and how consequences spread. Say WHO drinks with social sting — punchy and direct, like a party card read aloud at a loud table.',
-        example: '"Everyone draws one, drinks one." | "This round, every action costs a sip." | "Anyone who draws drinks twice." | "Pick someone to drink — they pick another." | "Last player to finish their turn drinks." | "Blocked players drink and draw."',
-        avoid: 'NEVER: "the player must drink", "take a drink", "is required to drink". No dry, clinical, or anonymous phrasing. No trigger-questions about rare or specific unseen events. Every rule must say WHO drinks with social sting.',
+        tone: 'PARTY DRINKING. Rewrite who drinks this round. Default: active drinking modifiers — round-wide effects, clearly naming who drinks and how drinking spreads. Punchy, social, immediate. Like a party card read aloud at a loud table.',
+        example: '"+ cards make everyone sip." | "Skipped players drink one." | "Color changes pick a drinker." | "Anyone on last card drinks first." | "Blocked players toast and drink." | "This round, every action costs a sip."',
+        avoid: 'NEVER: "the player must drink", "take a drink", "is required to drink". No dry or anonymous phrasing. No trigger-questions about rare or specific unseen events. Every rule must say WHO drinks clearly and with social sting.',
       },
       funny: {
-        tone: 'FAMILY PARTY. Add active funny modifiers that the whole table does RIGHT NOW. Rules must be game-anchored — tied to real states, card types, or moments in this game. Not chaos — do not invert mechanics. Safe for all ages. If you cannot picture the whole table doing it right now, reject the rule.',
-        example: '"This round, everyone stands while playing." | "Until next GLITCH, winners bow and accept applause." | "Everyone narrates their moves in sports-commentator voice." | "Eliminated players coach the player to their left." | "All card plays require a sound effect." | "Winners must moonwalk to their seat."',
-        avoid: 'No random filler tasks disconnected from the game. No generic "clap your hands" or "do a dance" unless tied to a real game state or moment. No rules that invert game mechanics — that is Chaos. No weak or flat instructions. Every rule must create a visible comic moment you can picture at the table.',
+        tone: 'FAMILY PARTY. Rewrite how people perform the game. Playful, theatrical, visible. Silly social rules are welcome — funny sounds, poses, dramatic voices, exaggerated reactions, clapping — but preferably tied to a real card type, game action, player state, or game moment. Not chaos — do not invert mechanics. Safe for all ages.',
+        example: '"Color changes must be sung." | "Anyone who blocks strikes a pose." | "This round, all card plays need a sound effect." | "Last card? Eyebrow drama." | "Skipped players clap once." | "Everyone narrates their moves in sports-commentator voice."',
+        avoid: 'No completely random unrelated silliness with no game connection. No rules that invert game mechanics — that is Chaos. No weak or flat instructions with no comic image. Every rule should feel at least lightly attached to the game.',
       },
     };
 
@@ -616,34 +615,40 @@ CORE OUTPUT FORM:
 Default output = ACTIVE ROUND RULES.
 A GLITCH rule changes the game RIGHT NOW. Players apply it immediately, without needing the app to know what just happened at the table.
 
-PREFER these patterns:
+PREFER:
 - "This round, ..."
 - "Until next GLITCH, ..."
-- "Everyone now ..."
-- "Nobody may ..."
-- "All [card or action type] now ..."
+- "[card type] now ..."
 - "[player state] players now ..."
+- "Nobody may ..."
+- "Everyone now ..."
 
-REDUCE these patterns (use only when trigger is extremely obvious and universal):
+REDUCE (only when trigger is extremely common and obvious to all players):
 - "Played a [specific card]?" — app cannot see this
 - "Drew a [card]?" — same problem
 - Any trigger that requires knowing the exact live table event
+
+RULE FAMILIES — every rule must fit exactly one:
+1. ROUND MODIFIER — changes the current round globally
+   e.g. "This round, + cards hit everyone." | "Color changes fail this round."
+2. CARD-TYPE MODIFIER — changes how a real card or action type works right now
+   e.g. "+ cards now skip instead." | "Skip cards bounce back."
+3. PLAYER-STATUS MODIFIER — changes what happens to a player state right now
+   e.g. "Skipped players draw one." | "Blocked players drink."
+If a rule does not fit one of these three, do not output it.
 
 QUALITY CHECK — every rule must pass all 5:
 1. IMMEDIATE: players can apply it right now
 2. GAME-ANCHORED: clearly tied to real mechanics, card types, or states of ${gameName}
 3. CLEAR: understandable on first read
-4. VIBE-CORRECT: fits the chosen mode
-5. ROUND-CHANGING: actually changes something this round or player state
-
-CORE CREATIVE RULE:
-Absurd, but anchored to the real game. A rule may be wild, unfair, or ridiculous — but it must sit on real game logic, not random party tasks.
+4. NATURAL: sounds like short human-written card text, not a translated system message
+5. VIBE-CORRECT: fits the chosen mode
 
 ${gameContext}
 
 PHASE:
 ${isEarlyGame
-  ? 'Prefer rules that apply to the current table state. Avoid rules that require built-up ownership, elimination history, or advanced board state.'
+  ? 'Prefer rules that apply to the current table state. Avoid rules requiring built-up ownership, elimination history, or advanced board state.'
   : 'Use the full game state.'}
 
 VIBE: ${vibe.tone}
@@ -654,20 +659,21 @@ ${vibe.example}
 AVOID:
 ${vibe.avoid}
 
+LANGUAGE:
+Use plain spoken English. Prefer: "draw two", "drink now", "skip a turn", "everyone drinks", "play open-hand", "draw one".
+Never use in card text: "declarations", "force drawing", "resolve", "corruption", "ownership", "modifier".
+
 STYLE:
 - Max 10 words per rule
-- Simple spoken language — no jargon
 - No "first", "initial", "opening" in output
-- No "resolve", "ownership flips", "redirected", "state corruption"
-- No trigger questions about specific unseen events
 - No explanations
 - Return exactly ${batchSize} rules as a JSON array${conservativeNote}${historyBlock}
 
 GOOD:
-"This round, action cards hit everyone." | "Nobody may stop early now." | "Anyone eliminated is back in." | "Everyone plays open-hand this round." | "Until next GLITCH, skips reverse."
+"This round, + cards hit everyone." | "Color changes fail this round." | "Skipped players draw one." | "Nobody ends on an action card." | "Color changes must be sung." | "Blocked players toast and drink."
 
 BAD:
-"Played a [specific card]?" | "Open [special card]? ..." | "Ownership flips." | "The player must drink." | "First freeze? ..."
+"Super TAKI played?" | "Open TAKI? ..." | "last card declarations now force drawing two" | "players draw pretending to fish" | "Ownership flips." | "The player must drink."
 
 Return ONLY: ["rule 1", "rule 2", ...]`;
   };
@@ -770,6 +776,10 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     r = r.replace(/\bthe player must drink\b/gi, 'drink');
     r = r.replace(/\bthe frozen player finishes their drink\b/gi, 'Frozen? Bottoms up.');
     r = r.replace(/\bstopped already\?/gi, 'Stopped?');
+    r = r.replace(/\bis required to\b/gi, 'must');
+    r = r.replace(/\bforces? (\w+) to\b/gi, 'makes $1');
+    r = r.replace(/\bdeclarations\b/gi, 'calls');
+    r = r.replace(/\bforce drawing\b/gi, 'draw');
     return r.trim();
   };
 
@@ -792,6 +802,11 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
     if (/redirected/.test(r)) return false;
     if (/state corruption/.test(r)) return false;
     if (/first time|^first |^initial |^opening /.test(r)) return false;
+    if (/\bdeclarations\b/.test(r)) return false;
+    if (/\bforce drawing\b/.test(r)) return false;
+    if (/\bcorruption\b/.test(r)) return false;
+    if (/\bmodifier\b/.test(r)) return false;
+    if (/pretending to/.test(r)) return false;
     return true;
   };
 
@@ -818,28 +833,29 @@ Return ONLY: ["rule 1", "rule 2", ...]`;
 
   const vibeInstruction =
     vibeKey === 'chaotic'
-      ? 'Chaos: active round changes RIGHT NOW — corrupt rules, reverse outcomes, revive players, apply global effects. Mostly "this round..." or "until next GLITCH..." shapes. Feel sudden and disruptive.'
+      ? 'Chaos: rewrite the round — corrupt card behavior, block safe endings, spread effects, revive players. Disruptive, unfair, game-breaking. "This round..." or "Until next GLITCH..." shapes.'
       : vibeKey === 'drinking'
-      ? 'Drinking: active social rules that start now — round-wide effects, punchy, clear WHO drinks with social sting.'
-      : 'Family Party: active funny table rules — game-anchored, whole-table, visible comedy that starts now. Not chaos.';
+      ? 'Drinking: active drinking rules that start now — who drinks, how it spreads. Punchy, social, clear.'
+      : 'Family Party: playful active rules — silly sounds, poses, funny voices, exaggerated reactions — lightly tied to real game actions or moments. Not chaos.';
 
   return `You are GLITCH.
 Write 5 short rule cards for ${gameName}.
 Write in English only.
 
-Preferred patterns: "This round, ...", "Until next GLITCH, ...", "Everyone now ...", "Nobody may ..."
+Prefer: "This round, ...", "Until next GLITCH, ...", "[card type] now ...", "[player state] players now ..."
 Avoid: trigger questions about specific unseen events ("Played a X?", "Drew a Y?")
 
-Game terms to anchor rules to: ${terms}
+Game terms and states to anchor rules to: ${terms}
 
 ${vibeInstruction}
 
 Rules must be:
 - active — players can apply immediately
 - game-anchored — clearly tied to ${gameName}
+- natural — short human-written card text, not a system message
 - clear on first read
 - max 10 words
-- no "first", "initial", or "opening"
+- no "first", "initial", "opening", "declarations", "resolve", "modifier"
 - no explanations
 
 Return ONLY:
